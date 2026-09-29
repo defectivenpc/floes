@@ -1,0 +1,69 @@
+{
+  description = "floe: typed interfaces and mixin linking for Nix modules";
+
+  # The library is `lib`, and it takes nixpkgs' `lib` and nothing else. A
+  # consumer needs no system, so `lib` is a flake-level output; the checks
+  # need one, and are per-system.
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
+
+    treefmt-nix = {
+      url = "github:numtide/treefmt-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+
+  outputs =
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+      treefmt-nix,
+    }:
+    {
+      # mkFloeLib :: nixpkgs.lib -> the library
+      #
+      # What a consumer with its own nixpkgs calls, so one `lib` reaches
+      # both and floe's pin decides nothing downstream.
+      mkFloeLib = lib: import ./lib { inherit lib; };
+
+      # The same against this flake's own pin, for a reader with no nixpkgs
+      # to hand — `nix eval github:defectivenpc/floes#lib.T`.
+      lib = import ./lib { lib = nixpkgs.lib; };
+    }
+    // flake-utils.lib.eachDefaultSystem (
+      system:
+      let
+        pkgs = nixpkgs.legacyPackages.${system};
+        lib = nixpkgs.lib;
+
+        treefmtEval = treefmt-nix.lib.evalModule pkgs (import ./nix/treefmt.nix);
+
+        results = import ./tests { inherit lib; };
+      in
+      {
+        formatter = treefmtEval.config.build.wrapper;
+
+        checks = {
+          formatting = treefmtEval.config.build.check self;
+
+          tests = pkgs.runCommand "floe-tests" { } ''
+            cat <<'EOF' > $out
+            ${builtins.toJSON results}
+            EOF
+            if [ ${toString (builtins.length results)} -ne 0 ]; then
+              echo "floe tests FAILED:" >&2
+              cat $out >&2
+              exit 1
+            fi
+          '';
+        };
+
+        devShells.default = pkgs.mkShell {
+          packages = [ treefmtEval.config.build.wrapper ];
+        };
+      }
+    );
+}
