@@ -20,27 +20,46 @@
   n,
   withInputs ? true,
   chain ? true,
-  # Whether a body actually folds its predecessor's value in. `chain` decides
-  # how many holes the linker resolves; `fold` decides whether the values
-  # flowing through them grow. Splitting them separates a cost in the linker
-  # from a cost in the benchmark's own string building.
-  fold ? true,
+  # Whether a body actually folds its predecessor's value into its own. `chain`
+  # decides how many holes the linker resolves; `fold` decides whether the values
+  # flowing through them grow.
+  #
+  # Defaults to `false`, because `true` measures a quadratic this benchmark
+  # creates rather than anything floe does: with it, floe i's value contains every
+  # predecessor's label, so total characters are O(n²). Memory at n = 500 → 4000
+  # goes 94 → 278 → 945 → 3514 MB with the fold and 50 → 100 → 199 → 399 MB
+  # without it. The second is floe's actual scaling; the first is string
+  # concatenation.
+  #
+  # It is still worth having as an axis: a 1000-deep chain where every floe
+  # accumulates its predecessors is not a real link — real ones are shallow and
+  # wide — but the flag is what proves the quadratic belongs to the benchmark.
+  fold ? false,
 
-  # How heavy each floe's body is. `weight = 1` is the floor: one input, one
-  # string. The example floes in `examples/nixos` sit around `weight = 15` —
-  # several inputs, a nested `T.record` output schema, a systemd-unit-shaped
-  # fragment. Anything extrapolated from `weight = 1` understates a real floe,
-  # which is the flaw this parameter exists to fix.
+  # How heavy each floe's *body* is: how many fields its output schema declares
+  # and its body computes. `weight = 1` is the floor; the example floes in
+  # `examples/nixos` sit around 15, which is a nested `T.record` and a
+  # systemd-unit-shaped fragment. Extrapolating from `weight = 1` understates a
+  # real floe, which is what this exists to fix.
+  #
+  # It does *not* scale the input count: declaring an input costs about 0.013ms
+  # and 5MB per floe on its own (see `inputCount`), so tying the two together
+  # made every figure pessimistic by however many inputs the weight implied.
   weight ? 1,
 
-  # Which body form. `modules` pays a whole `lib.evalModules` per floe for the
-  # module system's merge; `body` is a plain function and pays none of it. Most
-  # floes never merge anything, so this is the difference between the two.
+  # How many inputs each floe declares, all of them read. Three is what the
+  # example floes average; the cost is linear in it.
+  inputCount ? 3,
+
+  # Which body form. `modules` runs the floe's module list in its own
+  # `lib.evalModules`, which is what buys the module system's merge inside a floe
+  # — and what makes hosting an existing NixOS module possible at all. `body` is
+  # a plain function and pays none of it.
   #
-  # Measured at ~30% of a floe's cost at realistic weight, not the whole of it,
-  # because `checkInputs` in `lib/floe.nix` still runs an `evalModules` of its
-  # own to validate inputs whichever form the body took. That is the next thing
-  # to cut if anyone needs it cut.
+  # Neither form avoids `checkInputs` (`lib/floe.nix`), a *separate*
+  # `evalModules` that runs at instantiate time purely to type-check what the
+  # deployer passed. `inputCount` measures that one, and it is the larger of the
+  # two at a realistic input count.
   form ? "modules",
 }:
 
@@ -62,6 +81,7 @@ let
   # A narrow, nested output schema rather than `attrsOf any`: checking a real
   # `T.record` tree is work a real floe pays for, and `attrsOf any` skips it.
   fieldNames = lib.genList (k: "f${toString k}") weight;
+  inputNames = lib.genList (k: "i${toString k}") inputCount;
 
   kind = floe.mkSig {
     name = "bench.out";
@@ -85,6 +105,11 @@ let
     let
       # Reading an input is what forces `checkInputs`, and so what makes the
       # second `evalModules` per floe actually get paid for.
+      # Every declared input, concatenated. A real floe reads the inputs it
+      # declares; reading one and letting `checkInputs`' own `deepSeq` force the
+      # rest would measure the deepSeq instead of the floe.
+      readAll = inputs: lib.concatStringsSep "-" (lib.attrValues inputs);
+
       mkV =
         self: requires:
         if !chain || i == 0 then
@@ -111,7 +136,7 @@ let
       summary = "Benchmark floe at chain position ${toString i}.";
 
       inputs = lib.optionalAttrs withInputs (
-        lib.genAttrs fieldNames (
+        lib.genAttrs inputNames (
           n:
           lib.mkOption {
             type = lib.types.str;
@@ -128,7 +153,7 @@ let
       modules = lib.optional (form == "modules") (
         { config, ... }:
         let
-          self = if withInputs then config.floe.inputs.${lib.head fieldNames} else toString i;
+          self = if withInputs then readAll config.floe.inputs else toString i;
           v = mkV self config.floe.requires;
         in
         {
@@ -147,7 +172,7 @@ let
             ...
           }:
           let
-            self = if withInputs then inputs.${lib.head fieldNames} else toString i;
+            self = if withInputs then readAll inputs else toString i;
             v = mkV self requires;
           in
           {

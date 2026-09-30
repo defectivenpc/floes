@@ -1,10 +1,5 @@
 # Three worked examples
 
-None is for reuse. Catallaxy has its own Kubernetes distribution and nixpkgs
-has its own module system; these exist so floe is developed against more
-than one domain, and so a reader can see the library in use without adopting
-anything.
-
 - **[`nixos/`](nixos)** — the probe. Fine-grained units, a namespace with an
   owner, services contributing to it, two Postgres servers on one host. Two
   links from one set of floes: a five-unit one to read, a twenty-nine-unit
@@ -73,31 +68,50 @@ tell a real option path from a plausible one; this can.
 
 ## Performance
 
-Per-floe marginal cost, linear to n=2000, at two body weights and both body
-forms (`bench/run.sh`):
+Per-floe marginal cost at n=1000, three inputs each, `bench/run.sh`:
 
-|                       | `modules`   | `body`      |
-| --------------------- | ----------- | ----------- |
-| trivial (one option)  | 0.13 ms     | 0.07 ms     |
-| realistic (weight 15) | **0.33 ms** | **0.24 ms** |
+|                       | `modules`        | `body`           |
+| --------------------- | ---------------- | ---------------- |
+| trivial output        | 0.22 ms / 130 MB | 0.12 ms / 64 MB  |
+| realistic output (15) | 0.38 ms / 191 MB | 0.25 ms / 100 MB |
 
-`body` — a plain function instead of the module system — is about 30%
-cheaper at realistic weight. Not more, because `checkInputs` still runs an
-`evalModules` of its own to validate inputs whichever form the body takes;
-that is the next thing to cut if it ever needs cutting.
+Linear in the number of floes: 10, 40, 100, 199 MB at n = 100, 400,
+1000, 2000.
+
+`body` — a plain function — is about a third cheaper in time and half in
+memory than `modules`, which runs the floe's module list in its own
+`evalModules`. That is what `modules` buys: the module system's merge inside
+a floe, and the ability to host an existing NixOS module. Worth paying where
+it is wanted, which is why `networking` and `nginx` keep it.
+
+Neither form avoids `checkInputs`, a **separate** `evalModules` that runs at
+instantiate time purely to type-check what the deployer passed. Isolated:
+
+| inputs declared | ms/floe | MB per 1000 floes |
+| --------------- | ------- | ----------------- |
+| 0               | 0.17    | 50                |
+| 3               | 0.25    | 100               |
+| 15              | 0.34    | 166               |
+
+Three inputs — what the example floes average — is about a third of a `body`
+floe's time and half its allocation, for work that is checking three values
+against three `lib.types`. A direct walk of the declared options would do it
+without the module system; nothing uses `mkIf` in an argument to
+`instantiate`. Not done, and the numbers are here so the decision has
+evidence.
 
 Against a whole NixOS evaluation, forced to the toplevel derivation path:
 
 |                       | cpu     | allocated |
 | --------------------- | ------- | --------- |
-| stock NixOS, no floes | 1.867 s | 614 MB    |
+| stock NixOS, no floes | 2.193 s | 614 MB    |
 | small link, 5 floes   | 1.808 s | 630 MB    |
 | fleet, 29 floes       | 1.684 s | 651 MB    |
 
-**Twenty-nine floes cost 37 MB and no measurable time.** The time column is
-within noise — the fleet measures faster than the baseline, which is
-measurement scatter rather than a result. The fleet's own link, 90 graph
-edges and two twenty-member collections, is 27 ms and 2 MB.
+**Twenty-nine floes cost 37 MB and no measurable time.** The cpu column is
+noise at this scale — the fleet reads faster than the baseline, which is
+scatter, not a result. The fleet's own link, 90 graph edges and two
+twenty-member collections, is 27 ms and 2 MB.
 
 Floes are cheap. What is not cheap is wrapping nixpkgs modules, at ~77 ms
 and ~26 MB each; see [`wrapped/`](wrapped).
