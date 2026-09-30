@@ -137,11 +137,18 @@ an attrset of floes — which is what
 [presets](https://github.com/defectivenpc/catallaxy/blob/main/docs/book/src/using/presets.md)
 now are, with the declaration checked rather than assumed.
 
-Two places the analogy stops. Backpack links a whole program at once;
-catallaxy links per cluster, with the lab as a second, wider scope that a
-cluster falls back to. And Backpack has no notion of a value being unusable
-elsewhere, which is what `T.local` marks: a Secret reference means nothing
-in another cluster, so it does not cross.
+One place the analogy stops. Backpack links a whole program at once; a floe
+link is one fixpoint over one set of units, and there is no longer a wider
+scope a link falls back to — `scope` and the `T.local` locality marking that
+served it were removed as unexercised. `docs/adr/0003` says why, and
+`docs/migrating.md` says what to do instead.
+
+Two things Backpack has no counterpart for, and floe now does. `T.runtime`
+marks a value that does not exist until after apply, from which the linker
+derives a deploy edge. `T.derivedFrom` marks a field its provider folded out
+of a collection, which the linker withholds from the peers that feed that
+fold — mixin linking has nothing to say about a unit reading back its own
+contribution, because Backpack units do not aggregate.
 
 The one word that was doing its job backwards was `unit` — see the
 glossary's table of retired terms.

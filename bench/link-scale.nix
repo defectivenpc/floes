@@ -32,6 +32,16 @@
   # fragment. Anything extrapolated from `weight = 1` understates a real floe,
   # which is the flaw this parameter exists to fix.
   weight ? 1,
+
+  # Which body form. `modules` pays a whole `lib.evalModules` per floe for the
+  # module system's merge; `body` is a plain function and pays none of it. Most
+  # floes never merge anything, so this is the difference between the two.
+  #
+  # Measured at ~30% of a floe's cost at realistic weight, not the whole of it,
+  # because `checkInputs` in `lib/floe.nix` still runs an `evalModules` of its
+  # own to validate inputs whichever form the body took. That is the next thing
+  # to cut if anyone needs it cut.
+  form ? "modules",
 }:
 
 let
@@ -44,7 +54,7 @@ let
     i:
     floe.mkSig {
       name = "CHAIN_${toString i}";
-      canonicalName = "link";
+      canonicalName = "chain${toString i}";
       description = "Benchmark signature for chain position ${toString i}.";
       shape = T.record { v = T.str; };
     };
@@ -72,6 +82,30 @@ let
 
   mkUnit =
     i:
+    let
+      # Reading an input is what forces `checkInputs`, and so what makes the
+      # second `evalModules` per floe actually get paid for.
+      mkV =
+        self: requires:
+        if !chain || i == 0 then
+          self
+        else if fold then
+          "${requires."chain${toString (i - 1)}".v}.${self}"
+        else
+          builtins.seq requires."chain${toString (i - 1)}".v self;
+
+      outFor =
+        v:
+        lib.genAttrs fieldNames (n: {
+          name = "${v}-${n}";
+          port = 1024 + i;
+          enable = true;
+          tags = [
+            n
+            "bench"
+          ];
+        });
+    in
     (floe.mkFloe {
       name = "bench-${toString i}";
       summary = "Benchmark floe at chain position ${toString i}.";
@@ -87,42 +121,39 @@ let
         )
       );
 
-      requires = lib.optionalAttrs (chain && i > 0) { link = sigOf (i - 1); };
-      provides.link = sigOf i;
+      requires = lib.optionalAttrs (chain && i > 0) { "chain${toString (i - 1)}" = sigOf (i - 1); };
+      provides."chain${toString i}" = sigOf i;
       out.bench = kind;
 
-      modules = [
-        (
-          { config, ... }:
+      modules = lib.optional (form == "modules") (
+        { config, ... }:
+        let
+          self = if withInputs then config.floe.inputs.${lib.head fieldNames} else toString i;
+          v = mkV self config.floe.requires;
+        in
+        {
+          config.floe.provides."chain${toString i}" = { inherit v; };
+          config.floe.out.bench = outFor v;
+        }
+      );
+
+      body =
+        if form != "body" then
+          null
+        else
+          {
+            inputs,
+            requires,
+            ...
+          }:
           let
-            # Reading `inputs` is what forces `checkInputs`, and so what makes
-            # the second `evalModules` per floe actually get paid for. A body
-            # that never reads an input never pays for one.
-            self = if withInputs then config.floe.inputs.${lib.head fieldNames} else toString i;
-            v =
-              if !chain || i == 0 then
-                self
-              else if fold then
-                "${config.floe.requires.link.v}.${self}"
-              else
-                # The hole is still resolved and sealed; its value just does not
-                # accumulate into this one.
-                builtins.seq config.floe.requires.link.v self;
+            self = if withInputs then inputs.${lib.head fieldNames} else toString i;
+            v = mkV self requires;
           in
           {
-            config.floe.provides.link = { inherit v; };
-            config.floe.out.bench = lib.genAttrs fieldNames (n: {
-              name = "${v}-${n}";
-              port = 1024 + i;
-              enable = true;
-              tags = [
-                n
-                "bench"
-              ];
-            });
-          }
-        )
-      ];
+            provides."chain${toString i}" = { inherit v; };
+            out.bench = outFor v;
+          };
     }).instantiate
       { };
 

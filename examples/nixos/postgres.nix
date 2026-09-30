@@ -74,64 +74,64 @@ floe.mkFloe {
     }
   );
 
-  modules = [
-    (
-      # `floe` here is the specialArg the linker injects, carrying `mkRuntime`
-      # bound to this unit's name — not the library this file was passed.
-      { config, floe, ... }:
-      let
-        # The link's name for this instance. Everything below is keyed by it, and
-        # that is the only reason two of these can coexist.
-        inst = config.floe.name;
-        svc = "postgres-${inst}";
-        dataDir = "/var/lib/${svc}";
-        passwordFile = "/run/secrets/${svc}-password";
-        inherit (config.floe.inputs) port package;
-      in
-      {
-        config.floe.provides.ports.tcp = [ port ];
+  body =
+    {
+      inputs,
+      requires,
+      collects,
+      floe,
+    }:
+    let
+      # The link's name for this instance. Everything below is keyed by it, and
+      # that is the only reason two of these can coexist.
+      inst = floe.name;
+      svc = "postgres-${inst}";
+      dataDir = "/var/lib/${svc}";
+      passwordFile = "/run/secrets/${svc}-password";
+      inherit (inputs) port package;
+    in
+    {
+      provides.ports.tcp = [ port ];
 
-        config.floe.provides.database = {
-          host = "127.0.0.1";
-          inherit port passwordFile;
+      provides.database = {
+        host = "127.0.0.1";
+        inherit port passwordFile;
 
-          # Generated on first start. A consumer that interpolates this into
-          # NixOS config gets an eval error naming this instance as the source
-          # — and with two instances, naming *which* one.
-          password = floe.mkRuntime [
-            "database"
-            "password"
-          ];
+        # Generated on first start. A consumer that interpolates this into
+        # NixOS config gets an eval error naming this instance as the source
+        # — and with two instances, naming *which* one.
+        password = floe.mkRuntime [
+          "database"
+          "password"
+        ];
+      };
+
+      out.nixosConfig = {
+        systemd = {
+          services.${svc} = {
+            description = "PostgreSQL (${inst}) on port ${toString port}";
+            wantedBy = [ "multi-user.target" ];
+            serviceConfig = {
+              Type = "notify";
+              User = svc;
+              Group = svc;
+              StateDirectory = svc;
+              ExecStart = "${package}/bin/postgres -D ${dataDir} -p ${toString port}";
+            };
+          };
+          # A list, so two instances' rules concatenate. That is correct here:
+          # the rules name different directories.
+          tmpfiles.rules = [ "d ${dataDir} 0700 ${svc} ${svc} - -" ];
         };
 
-        config.floe.out.nixosConfig = {
-          systemd = {
-            services.${svc} = {
-              description = "PostgreSQL (${inst}) on port ${toString port}";
-              wantedBy = [ "multi-user.target" ];
-              serviceConfig = {
-                Type = "notify";
-                User = svc;
-                Group = svc;
-                StateDirectory = svc;
-                ExecStart = "${package}/bin/postgres -D ${dataDir} -p ${toString port}";
-              };
-            };
-            # A list, so two instances' rules concatenate. That is correct here:
-            # the rules name different directories.
-            tmpfiles.rules = [ "d ${dataDir} 0700 ${svc} ${svc} - -" ];
+        users = {
+          users.${svc} = {
+            isSystemUser = true;
+            group = svc;
+            home = dataDir;
           };
-
-          users = {
-            users.${svc} = {
-              isSystemUser = true;
-              group = svc;
-              home = dataDir;
-            };
-            groups.${svc} = { };
-          };
+          groups.${svc} = { };
         };
-      }
-    )
-  ];
+      };
+    };
 }

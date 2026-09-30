@@ -45,35 +45,37 @@ floe.mkFloe {
     }
   );
 
-  modules = [
-    (
-      { config, ... }:
-      let
-        inst = config.floe.name;
-        db = config.floe.requires.database;
-      in
-      {
-        config.floe.out.nixosConfig.systemd = {
-          services.${inst} = {
-            description = "Dump ${toString db.host}:${toString db.port} nightly";
-            serviceConfig = {
-              Type = "oneshot";
-              DynamicUser = "true";
-              # The path, never the secret: `db.password` is deferred and would
-              # be an eval error here.
-              LoadCredential = "dbpw:${db.passwordFile}";
-              ExecStart = "/run/current-system/sw/bin/pg_dump -h ${db.host} -p ${toString db.port}";
-            };
-          };
-          timers.${inst} = {
-            wantedBy = [ "timers.target" ];
-            timerConfig = {
-              OnCalendar = config.floe.inputs.startAt;
-              Persistent = "true";
-            };
+  body =
+    {
+      inputs,
+      requires,
+      collects,
+      floe,
+    }:
+    let
+      inst = floe.name;
+      db = requires.database;
+    in
+    {
+      out.nixosConfig.systemd = {
+        services.${inst} = {
+          description = "Dump ${toString db.host}:${toString db.port} nightly";
+          serviceConfig = {
+            Type = "oneshot";
+            DynamicUser = "true";
+            # The path, never the secret: `db.password` is deferred and would
+            # be an eval error here.
+            LoadCredential = "dbpw:${db.passwordFile}";
+            ExecStart = "/run/current-system/sw/bin/pg_dump -h ${db.host} -p ${toString db.port}";
           };
         };
-      }
-    )
-  ];
+        timers.${inst} = {
+          wantedBy = [ "timers.target" ];
+          timerConfig = {
+            OnCalendar = inputs.startAt;
+            Persistent = "true";
+          };
+        };
+      };
+    };
 }

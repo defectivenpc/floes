@@ -22,7 +22,7 @@ floe.mkFloe {
   collects.dashboards = sigs.DASHBOARD; # every provider, keyed by unit
   provides.observer = sigs.OBSERVER;
 
-  modules = [ ./grafana.nix ];
+  body = { inputs, requires, collects, ... }: { provides.observer = …; };
 }
 ```
 
@@ -50,20 +50,21 @@ does not exist until after apply.
 
 ## The surfaces
 
-| Declaration        | Arity                                         |
-| ------------------ | --------------------------------------------- |
-| `requires`         | exactly one provider; zero or two is an error |
-| `requiresOptional` | zero or one; resolves to `null` at zero       |
-| `collects`         | every provider, keyed by unit; may be empty   |
-| `provides`         | what it answers, sealed to the signature      |
-| `out`              | what it emits, collected by output kind       |
+| Declaration | Arity                                         |
+| ----------- | --------------------------------------------- |
+| `requires`  | exactly one provider; zero or two is an error |
+| `collects`  | every provider, keyed by unit; may be empty   |
+| `provides`  | what it answers, sealed to the signature      |
+| `out`       | what it emits, collected by signature name    |
 
 Arity is a property of the hole, not of the signature: a second provider
-breaks every `requires` of it. The deployer says which a given consumer
-means.
+makes every `requires` of it ambiguous. The deployer says which a given
+consumer means, per consumer or once for the link:
 
 ```nix
 (floes.harbor { }).bind { issuance = "internal-ca"; }
+
+floe.link { units = { … }; defaults.X509_ISSUANCE = "internal-ca"; }
 ```
 
 [The mkFloe API](docs/floe-api.md) is the reference.
@@ -89,7 +90,7 @@ poking at it without a nixpkgs to hand.
 
 The library depends on nothing but `nixpkgs.lib`. It knows nothing about
 Kubernetes, or about any particular domain — a _distribution_ supplies the
-signatures and output kinds, and `tests/support` is a small worked one.
+signatures, and `examples/` holds two small worked ones.
 
 ## Develop
 

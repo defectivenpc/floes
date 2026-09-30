@@ -52,41 +52,43 @@ floe.mkFloe {
     }
   );
 
-  modules = [
-    (
-      { config, ... }:
-      let
-        targets = config.floe.collects.targets;
-        inherit (config.floe.requires.network) hostName;
-        inherit (config.floe.inputs) interval;
+  body =
+    {
+      inputs,
+      requires,
+      collects,
+      floe,
+    }:
+    let
+      targets = collects.targets;
+      inherit (requires.network) hostName;
+      inherit (inputs) interval;
 
-        stanza = unit: t: ''
-          - job_name: ${unit}
-            scrape_interval: ${interval}
-            metrics_path: ${t.path}
-            static_configs:
-              - targets: [ "127.0.0.1:${toString t.port}" ]
-        '';
-      in
-      {
-        config.floe.provides.ports.tcp = [ 9090 ];
+      stanza = unit: t: ''
+        - job_name: ${unit}
+          scrape_interval: ${interval}
+          metrics_path: ${t.path}
+          static_configs:
+            - targets: [ "127.0.0.1:${toString t.port}" ]
+      '';
+    in
+    {
+      provides.ports.tcp = [ 9090 ];
 
-        config.floe.out.nixosConfig = {
-          systemd.services.prometheus = {
-            description = "Prometheus on ${hostName}, ${toString (lib.length (lib.attrNames targets))} target(s)";
-            wantedBy = [ "multi-user.target" ];
-            serviceConfig = {
-              DynamicUser = "true";
-              ExecStart = "/run/current-system/sw/bin/prometheus --config.file=/etc/prometheus.yml";
-            };
+      out.nixosConfig = {
+        systemd.services.prometheus = {
+          description = "Prometheus on ${hostName}, ${toString (lib.length (lib.attrNames targets))} target(s)";
+          wantedBy = [ "multi-user.target" ];
+          serviceConfig = {
+            DynamicUser = "true";
+            ExecStart = "/run/current-system/sw/bin/prometheus --config.file=/etc/prometheus.yml";
           };
-
-          environment.etc."prometheus.yml".text = ''
-            scrape_configs:
-            ${lib.concatStrings (lib.mapAttrsToList stanza targets)}
-          '';
         };
-      }
-    )
-  ];
+
+        environment.etc."prometheus.yml".text = ''
+          scrape_configs:
+          ${lib.concatStrings (lib.mapAttrsToList stanza targets)}
+        '';
+      };
+    };
 }

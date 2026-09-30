@@ -48,17 +48,14 @@ let
 
     provides.cluster = sigs.CLUSTER;
 
-    modules = [
-      (
-        { config, ... }:
-        {
-          config.floe.provides.cluster = {
-            inherit (config.floe.inputs) version;
-            apiServer = "https://api.cluster.internal:6443";
-          };
-        }
-      )
-    ];
+    body =
+      { inputs, ... }:
+      {
+        provides.cluster = {
+          inherit (inputs) version;
+          apiServer = "https://api.cluster.internal:6443";
+        };
+      };
   };
 
   certManager = floe.mkFloe {
@@ -69,26 +66,23 @@ let
     provides.issuer = sigs.ISSUER;
     out.k8s = manifests;
 
-    modules = [
-      (
-        { config, floe, ... }:
-        {
-          config.floe.provides.issuer = {
-            name = "cluster-ca";
-            caFingerprint = floe.mkRuntime [
-              "issuer"
-              "caFingerprint"
-            ];
-          };
+    body =
+      { floe, ... }:
+      {
+        provides.issuer = {
+          name = "cluster-ca";
+          caFingerprint = floe.mkRuntime [
+            "issuer"
+            "caFingerprint"
+          ];
+        };
 
-          config.floe.out.k8s.helmRelease = {
-            chart = "jetstack/cert-manager";
-            version = "1.16.2";
-            values.installCRDs = true;
-          };
-        }
-      )
-    ];
+        out.k8s.helmRelease = {
+          chart = "jetstack/cert-manager";
+          version = "1.16.2";
+          values.installCRDs = true;
+        };
+      };
   };
 
   podinfo = floe.mkFloe {
@@ -101,22 +95,16 @@ let
     };
     out.k8s = manifests;
 
-    modules = [
-      (
-        { config, ... }:
-        let
-          issuer = config.floe.requires.issuer;
-        in
-        {
-          config.floe.out.k8s.certificate = {
-            issuerRef.name = issuer.name;
-            # The deferred token in output data is what the linker scans for,
-            # and it is why podinfo lands in a later phase than cert-manager.
-            annotations."floe.dev/ca-fingerprint" = issuer.caFingerprint;
-          };
-        }
-      )
-    ];
+    body =
+      { requires, ... }:
+      {
+        out.k8s.certificate = {
+          issuerRef.name = requires.issuer.name;
+          # The runtime token in output data is what the linker scans for, and
+          # it is why podinfo lands in a later phase than cert-manager.
+          annotations."floe.dev/ca-fingerprint" = requires.issuer.caFingerprint;
+        };
+      };
   };
 
   floes = { inherit cluster certManager podinfo; };

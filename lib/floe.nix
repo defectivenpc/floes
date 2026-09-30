@@ -1,5 +1,5 @@
-# mkFloe: a unit with declared surfaces (inputs, requires, requiresOptional,
-# provides, out) and a body of ordinary NixOS-style modules.
+# mkFloe: a unit with declared surfaces (inputs, requires, collects, provides,
+# out) and a body that is either a plain function or NixOS-style modules.
 { lib, types }:
 
 rec {

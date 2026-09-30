@@ -34,16 +34,18 @@ floe.mkFloe {
     }
   );
 
-  modules = [
-    (
-      { config, ... }:
-      {
-        config.floe.provides.proxy = {
-          baseDomain = config.floe.requires.network.domain;
-          scheme = "https";
-        };
-        config.floe.out.nixosConfig.services.caddy.enable = true;
-      }
-    )
-  ];
+  body =
+    {
+      inputs,
+      requires,
+      collects,
+      floe,
+    }:
+    {
+      provides.proxy = {
+        baseDomain = requires.network.domain;
+        scheme = "https";
+      };
+      out.nixosConfig.services.caddy.enable = true;
+    };
 }

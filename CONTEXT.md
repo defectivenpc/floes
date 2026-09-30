@@ -33,20 +33,30 @@ keying them by the link's name for the instance, so two instances of it
 would emit the same paths and merge silently. Declared by the author;
 refused by the linker. _Avoid_: unique floe, single-instance.
 
-**Body**: The list of NixOS modules a floe is implemented by. It reads
-`config.floe.*` and nothing else — there is no ambient option tree and no
-enclosing `config`.
+**Body**: What a floe is implemented by — either `body`, a plain function of
+its declared surfaces, or `modules`, ordinary NixOS modules for a floe that
+wants the module system's merge inside itself. Either way it reads its
+resolved holes and nothing else: there is no ambient option tree.
 
 ### Interfaces
 
-**Signature**: A named record schema for a value that crosses a floe
-boundary. Resolution keys on its `name`, so two signatures sharing a name
-are the same signature. _Avoid_: interface, contract, capability.
+**Signature**: A named schema for anything a floe commits to — a value it
+exchanges with a peer, or a product it emits. Resolution keys on its `name`,
+so two signatures sharing a name are the same signature. _Avoid_: interface,
+contract, capability, output kind.
+
+**Canonical name**: The name a hole or provide of a signature should be
+called by. A name may not mean two different signatures in one link; a
+signature may have more than one name, because a floe can hold a primary and
+a replica of the same thing.
+
+**Shape**: The `T` schema a signature is built from. Named for what it is
+rather than for a direction, because a signature has none — the surface it
+sits on is what makes it an input or an output.
 
 **Hole**: A signature a floe requires and does not implement. The arity is a
 property of the hole rather than of the signature: `requires` is exactly
-one, `requiresOptional` is zero or one, `collects` is every provider.
-_Avoid_: dependency, slot.
+one, `collects` is every provider. _Avoid_: dependency, slot.
 
 **Provide**: What a floe answers, checked and restricted to its signature on
 the way out.
@@ -62,14 +72,16 @@ concerns; concerns with one answer stay plain holes. _Avoid_: facet,
 contribution slot, aggregate. It is not a separate mechanism and should not
 get a separate word.
 
-**Deferred value**: A value that does not exist until after apply, carried
-as a token. Reading one where a concrete value is required is an error at
-eval naming the floe it came from; a token reaching output data becomes a
-deploy edge and a later phase.
+**Runtime value**: A value that does not exist until after apply, carried as
+a token. Reading one where a concrete value is required is an error at eval
+naming the floe it came from; a token reaching output data becomes a deploy
+edge and a later phase. _Avoid_: deferred, lazy, unknown.
 
-**Link-local**: A field whose meaning is confined to the link that produced
-it — a Service address, a namespace, an API endpoint. Marked per field, and
-refused when a consumer in another link would read it.
+**Derived field**: A field its provider computed by folding a collection.
+The linker withholds it from any peer that contributes to that same
+collection, because reading it there would be a cycle through the fold.
+Marked per field, not per hole — the same hole is safe for every other field
+on it.
 
 ### Linking
 
@@ -77,25 +89,20 @@ refused when a consumer in another link would read it.
 result with `lib.fix`, sealing, and collecting output. One link is one
 fixpoint. _Avoid_: graph, deployment, assembly.
 
-**Scope**: An enclosing link whose provides a nested link may resolve
-against, after its own units. How a wider context reaches a narrower one
-without an ambient `config`.
-
 **Binding**: A deployer saying which provider a particular hole means, when
 there is more than one. The deployer's to make and not the author's, because
 a floe does not know its peers' names.
+
+**Default**: The same decision made once for a whole link rather than per
+consumer, so adding a second provider of something does not break every
+consumer that has no opinion about which one it wants.
 
 **Phase**: How many deploy edges deep a unit sits, derived from deferred
 tokens in output data. Nothing declares an ordering; nothing may.
 
 ### Output
 
-**Output kind**: A dotted name plus a schema for one class of build product.
-The _name_ is what collects fragments from different floes into one bucket;
-the _schema_ is each floe's own, the way a NixOS module's options are its
-own.
-
-**Fragment**: One floe's contribution to an output kind — in the NixOS
+**Fragment**: One floe's contribution to an emitted signature — in the NixOS
 examples, a piece of `config` shaped like the namespace that floe owns.
 
 **Adapter**: The function a consumer writes to turn a link's output into
@@ -104,10 +111,10 @@ the distribution, never in `lib/`.
 
 ### Domains
 
-**Distribution**: A catalogue of signatures, output kinds and floes for one
-domain, plus whatever sugar suits it. The library ships none — it depends on
-nothing but `nixpkgs.lib` and knows no domain. Catallaxy is one; `examples/`
-holds two small ones.
+**Distribution**: A catalogue of signatures and floes for one domain, plus
+whatever sugar suits it. The library ships none — it depends on nothing but
+`nixpkgs.lib` and knows no domain. Catallaxy is one; `examples/` holds two
+small ones.
 
 **Domain floe**: A floe that owns a namespace, collecting what its peers
 claim and being the only thing in the link that emits it.

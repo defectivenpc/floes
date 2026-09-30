@@ -60,48 +60,50 @@ floe.mkFloe {
     }
   );
 
-  modules = [
-    (
-      { config, ... }:
-      let
-        db = config.floe.requires.database;
-        proxy = config.floe.requires.proxy;
-        inherit (config.floe.inputs) port;
+  body =
+    {
+      inputs,
+      requires,
+      collects,
+      floe,
+    }:
+    let
+      db = requires.database;
+      proxy = requires.proxy;
+      inherit (inputs) port;
 
-        # Keyed by the link's name for this instance, so twenty of these coexist
-        # instead of twenty definitions of one unit.
-        inst = config.floe.name;
-        subdomain = if config.floe.inputs.subdomain == null then inst else config.floe.inputs.subdomain;
-        host = "${subdomain}.${proxy.baseDomain}";
-      in
-      {
-        config.floe.provides.route = { inherit subdomain port; };
-        config.floe.provides.scrape = {
-          inherit port;
-          path = "/metrics";
+      # Keyed by the link's name for this instance, so twenty of these coexist
+      # instead of twenty definitions of one unit.
+      inst = floe.name;
+      subdomain = if inputs.subdomain == null then inst else inputs.subdomain;
+      host = "${subdomain}.${proxy.baseDomain}";
+    in
+    {
+      provides.route = { inherit subdomain port; };
+      provides.scrape = {
+        inherit port;
+        path = "/metrics";
+      };
+
+      out.nixosConfig.systemd.services.${inst} = {
+        description = "Workload ${inst} at ${host}";
+        wantedBy = [ "multi-user.target" ];
+        after = [ "network.target" ];
+
+        environment = {
+          # `db.password` would be an eval error here: it is deferred, and a
+          # systemd environment value is a string. The *path* is what a unit
+          # can be given at eval, and the secret arrives at start.
+          DATABASE_URL = "postgresql://${db.host}:${toString db.port}/webapp";
+          PUBLIC_URL = "${proxy.scheme}://${host}";
+          LISTEN_PORT = toString port;
         };
 
-        config.floe.out.nixosConfig.systemd.services.${inst} = {
-          description = "Workload ${inst} at ${host}";
-          wantedBy = [ "multi-user.target" ];
-          after = [ "network.target" ];
-
-          environment = {
-            # `db.password` would be an eval error here: it is deferred, and a
-            # systemd environment value is a string. The *path* is what a unit
-            # can be given at eval, and the secret arrives at start.
-            DATABASE_URL = "postgresql://${db.host}:${toString db.port}/webapp";
-            PUBLIC_URL = "${proxy.scheme}://${host}";
-            LISTEN_PORT = toString port;
-          };
-
-          serviceConfig = {
-            DynamicUser = "true";
-            LoadCredential = "dbpw:${db.passwordFile}";
-            ExecStart = "/usr/bin/env webapp";
-          };
+        serviceConfig = {
+          DynamicUser = "true";
+          LoadCredential = "dbpw:${db.passwordFile}";
+          ExecStart = "/usr/bin/env webapp";
         };
-      }
-    )
-  ];
+      };
+    };
 }

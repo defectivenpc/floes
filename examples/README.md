@@ -18,8 +18,8 @@ anything.
 
 ```bash
 nix flake check          # both links, each also evaluated as a real NixOS system
-./examples/refuse.sh     # the two failures no Nix test can hold
-./bench/run.sh           # per-floe cost, at two weights
+./examples/refuse.sh     # the one failure no Nix test can hold
+./bench/run.sh           # per-floe cost, by body weight and body form
 ```
 
 ## What the NixOS example establishes
@@ -73,18 +73,31 @@ tell a real option path from a plausible one; this can.
 
 ## Performance
 
-Per-floe marginal cost, hand-written floes, linear to n=2000:
+Per-floe marginal cost, linear to n=2000, at two body weights and both body
+forms (`bench/run.sh`):
 
-|                                           | per floe    | 1000 floes       |
-| ----------------------------------------- | ----------- | ---------------- |
-| trivial body (one option, one string)     | 0.13 ms     | 0.154 s / 133 MB |
-| realistic body (`bench/run.sh` weight 15) | **0.34 ms** | 0.358 s / 323 MB |
+|                       | `modules`   | `body`      |
+| --------------------- | ----------- | ----------- |
+| trivial (one option)  | 0.13 ms     | 0.07 ms     |
+| realistic (weight 15) | **0.33 ms** | **0.24 ms** |
 
-A stock minimal NixOS evaluation is **1.63 s and 614 MB**, so a thousand
-realistic floes cost about a fifth of its time and half its memory. The
-twenty-nine-floe fleet — 90 graph edges, two twenty-member collections —
-links in 27 ms, and evaluating it as a full NixOS system adds **39 MB and no
-measurable time** over the stock baseline.
+`body` — a plain function instead of the module system — is about 30%
+cheaper at realistic weight. Not more, because `checkInputs` still runs an
+`evalModules` of its own to validate inputs whichever form the body takes;
+that is the next thing to cut if it ever needs cutting.
+
+Against a whole NixOS evaluation, forced to the toplevel derivation path:
+
+|                       | cpu     | allocated |
+| --------------------- | ------- | --------- |
+| stock NixOS, no floes | 1.867 s | 614 MB    |
+| small link, 5 floes   | 1.808 s | 630 MB    |
+| fleet, 29 floes       | 1.684 s | 651 MB    |
+
+**Twenty-nine floes cost 37 MB and no measurable time.** The time column is
+within noise — the fleet measures faster than the baseline, which is
+measurement scatter rather than a result. The fleet's own link, 90 graph
+edges and two twenty-member collections, is 27 ms and 2 MB.
 
 Floes are cheap. What is not cheap is wrapping nixpkgs modules, at ~77 ms
 and ~26 MB each; see [`wrapped/`](wrapped).
@@ -96,7 +109,7 @@ Measured rather than asserted, and the numbers are pinned by a test:
 |                                                    | units | deployer lines | `.bind` calls |
 | -------------------------------------------------- | ----- | -------------- | ------------- |
 | [`nixos/system-small.nix`](nixos/system-small.nix) | 5     | 11             | 1             |
-| [`nixos/system-fleet.nix`](nixos/system-fleet.nix) | 29    | 39             | 23            |
+| [`nixos/system-fleet.nix`](nixos/system-fleet.nix) | 29    | 37             | 15            |
 
 The small link is roughly the size of its stock NixOS equivalent — twelve
 lines against eleven — so brevity is not the claim. What is absent is:
@@ -113,14 +126,18 @@ So moving a workload to another port is one number in one place and the
 proxy target follows — `testOneEditPropagates` asserts that, including that
 it must _not_ open a port, since the workload sits behind the proxy.
 
-**The ceremony is real and it is the bind count.** Three databases answer
-`DATABASE`, so all twenty-three consumers must say which they mean. That is
-79% of the fleet's units carrying an explicit `.bind`. The honest read: a
-stock NixOS deployer writes a connection string per app anyway, so this is a
-different spelling of work they already did — but it is exactly the cost
-that a canonical default-provider rule would remove, at the price of the
-exactly-one property. The number is here so that trade can be argued with
-evidence.
+**The ceremony was the bind count, and `defaults` is most of the answer.**
+Three databases answer `DATABASE`. Before, every one of the twenty-three
+consumers had to say which it meant — and worse, _adding_ the second
+database broke all of them at once. `link { defaults.DATABASE = "main"; }`
+is one line that keeps every consumer with no opinion working, and it took
+the fleet to fifteen binds against a deliberately adversarial round-robin
+across all three. A fleet with one dominant database would keep almost none.
+
+What remains is irreducible: fifteen consumers that genuinely do want a
+specific database, and a deployer has to say so somewhere.
+`testTheDefaultDoesNotCollapseConsumers` pins that the default did not
+quietly merge them — each backup still dumps a different one.
 
 **And the author pays.** About 350 meaningful lines for seven floes and six
 signatures, plus `postgres.nix` being the nixpkgs module's job done again.
@@ -130,29 +147,35 @@ are written once and deployed many times.
 
 ## What it does not establish
 
-**The other half of the recursion problem is untouched.**
-[`nixos/broken.nix`](nixos/broken.nix) has a floe that reads the merge it
-contributes to. It recurses, and Nix says `infinite recursion encountered`
-naming no floe, no hole and no field. Note what decides it: nginx requires
-the _same hole from the same floe in the same cycle_ and is fine, because it
-reads `domain` rather than `openPorts`. The **field** is what makes it
-fatal, so a polarity annotation would have to be per field, not per hole.
+**The recursion problem is now solved in the one place it was solvable.**
+`NETWORK.openPorts` is `T.derivedFrom PORT_CLAIM`, so `link` refuses that
+field to any peer contributing a claim — before anything evaluates, since
+both facts are in the headers. What used to be
+`infinite recursion encountered`, naming nothing, is an error naming both
+floes, the collection and the field.
 
-Worse, and found while writing the tests: `builtins.tryEval` catches only
-`throw` and `assert`, so whether a failure is testable tracks _who reported
-it_. floe's own errors are catchable; Nix's `cannot coerce` and
-`infinite recursion` are not. No test can hold them and no library code can
-wrap them in a better message, because nothing runs after them. A readable
-error for a structural read in a cycle has to come from rejecting the cycle
-_before_ any body evaluates — which is what RFC 0001's stratification check
-would do, and why it is not cosmetic.
+Note what still works, and why it had to be per field: nginx requires the
+_same hole from the same floe in the same cycle_ and is fine, because it
+reads `domain`.
 
-**There is no real escape hatch.** A deployer needing a flag no floe exposes
-can fork the floe, or patch the fragment on its way out — which works today
-with no library support, because the adapter is their own function.
-`default.nix` shows it and spells out the cost: the patch names an option
-path inside a floe's output, so it depends on internals the floe never
-promised. Sealing protects `provides`, not `out`. And it cannot change
+That also made the failure **testable**, which it had not been:
+`builtins.tryEval` catches only `throw` and `assert`, so whether a failure
+can be tested tracks _who reported it_. Rejecting the bad read up front
+moved it from Nix's report to floe's. One case remains on the wrong side of
+that line — [`nixos/broken.nix`](nixos/broken.nix)'s `interpolating`, where
+a runtime token is coerced by string interpolation before anything typed
+sees it, which is RFC 0001's open question 1. No test can hold it and no
+library code can wrap them in a better message, because nothing runs after
+them. A readable error for a structural read in a cycle has to come from
+rejecting the cycle _before_ any body evaluates — which is what RFC 0001's
+stratification check would do, and why it is not cosmetic.
+
+**There is still no real escape hatch.** A deployer needing a flag no floe
+exposes can fork the floe, or patch the fragment on its way out — which
+works today with no library support, because the adapter is their own
+function. `default.nix` shows it and spells out the cost: the patch names an
+option path inside a floe's output, so it depends on internals the floe
+never promised. Sealing protects `provides`, not `out`. And it cannot change
 anything another floe already read through a signature, so it will never be
 as powerful as `mkForce` on a shared tree.
 
@@ -169,22 +192,24 @@ rather than values.
 
 ## The contrast with `k8s/`
 
-|               | nixos             | k8s           |
-| ------------- | ----------------- | ------------- |
-| unit          | a systemd service | a Helm chart  |
-| floes         | 7                 | 3             |
-| signatures    | 6                 | 2             |
-| collected     | 3                 | 0             |
-| eval cycles   | 2, both mutual    | 0, a chain    |
-| output typing | narrow, per floe  | loose, shared |
+|               | nixos                 | k8s           |
+| ------------- | --------------------- | ------------- |
+| unit          | a systemd service     | a Helm chart  |
+| floes         | 7                     | 3             |
+| signatures    | 6                     | 2             |
+| collected     | 3                     | 0             |
+| body form     | 5 `body`, 2 `modules` | 3 `body`      |
+| eval cycles   | 2, both mutual        | 0, a chain    |
+| output typing | narrow, per floe      | loose, shared |
 
 Kubernetes components have coarse grain and clean boundaries, so nothing
 needs a collection and nothing points backwards. A rendered manifest is
 opaque by nature, so there is no useful `T.record` to write for it — and
 floe does not insist on one. Both use `mkSig`, `requires`, `collects` and
-`mkOutputKind` unmodified. Floe was designed against the right-hand column;
-the left is the harder case, and the reason a second domain was worth
-testing against.
+`out` unmodified. `networking` and `nginx` stay on `modules` so that path
+stays load-bearing rather than being exercised only by fixtures. Floe was
+designed against the right-hand column; the left is the harder case, and the
+reason a second domain was worth testing against.
 
 ## A note on output schemas
 
@@ -195,6 +220,7 @@ NixOS example it must not be — `postgres` emits `systemd` and `users`,
 
 So each floe narrows the schema itself, the way a NixOS module declares its
 own options. [`nixos/kinds.nix`](nixos/kinds.nix) is the whole of it. This
-needed no library change: `lib/link.nix` already checks each floe's `out`
-against that floe's own kind and groups by `kind.name`. It had just never
-been written down.
+needed no library change: `lib/link.nix` already checked each floe's `out`
+against that floe's own signature and grouped by its `name`. It had just
+never been written down — and once it was, the separate `mkOutputKind`
+constructor turned out to have been a second spelling of `mkSig` all along.
