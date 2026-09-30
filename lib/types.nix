@@ -1,6 +1,6 @@
 # Data schemas for values that cross a floe boundary; a floe's `inputs` use
-# native NixOS option types instead. Each carries `T.local` per field, seals
-# by dropping undeclared fields, and holds no functions.
+# native NixOS option types instead. A schema seals by dropping undeclared
+# fields, and holds no functions.
 { lib }:
 
 let
@@ -89,19 +89,26 @@ rec {
     inherit inner;
     name = "attrs of ${inner.name}";
   };
-  deferred = inner: {
-    tag = "deferred";
-    inherit inner;
-    name = "deferred ${inner.name}";
+  # A field computed by folding a collection. The linker withholds it from any
+  # unit that contributes to that collection *and* reads it from the unit doing
+  # the collecting — which would be a cycle through the fold. Marked here rather
+  # than inferred, because only the author of the signature knows.
+  derivedFrom = sig: inner: {
+    tag = "derivedFrom";
+    inherit sig inner;
+    name = "${inner.name} derived from ${sig.name}";
   };
 
-  local = inner: {
-    tag = "local";
-    inherit inner;
-    name = "link-local ${inner.name}";
-  };
+  # derivedFromName :: type -> SignatureName | null
+  derivedFromName = ty: if (ty.tag or "") == "derivedFrom" then ty.sig.name else null;
 
-  isLocal = ty: (ty.tag or "") == "local";
+  # A value that does not exist until after apply. Carried as a token; reading
+  # one where a concrete value is required is an error naming its source.
+  runtime = inner: {
+    tag = "runtime";
+    inherit inner;
+    name = "runtime ${inner.name}";
+  };
 
   moduleType = inner: {
     tag = "moduleType";
@@ -123,7 +130,7 @@ rec {
     name = "tagged union { ${lib.concatStringsSep " | " (lib.attrNames variants)} }";
   };
 
-  isDeferredToken = v: isAttrs v && (v.__deferred or false) == true;
+  isRuntimeToken = v: isAttrs v && (v.__runtime or false) == true;
 
   # checkValue :: [string] -> type -> value -> value
   # Throws with a dotted path on mismatch; returns the (restricted) value.
@@ -143,13 +150,13 @@ rec {
       fail "declared with something that is not a floe type"
     else if ty.tag == "any" then
       v
-    else if ty.tag == "local" then
+    else if ty.tag == "derivedFrom" then
       checkValue path ty.inner v
-    else if ty.tag == "deferred" then
-      (if isDeferredToken v then v else checkValue path ty.inner v)
-    else if isDeferredToken v then
+    else if ty.tag == "runtime" then
+      (if isRuntimeToken v then v else checkValue path ty.inner v)
+    else if isRuntimeToken v then
       fail (
-        "got a deferred value (from '${toString (v.source or "?")}', resolves "
+        "got a runtime value (from '${toString (v.source or "?")}', resolves "
         + "'${toString (v.phase or "later")}') where concrete ${ty.name} is required"
       )
     else if ty.tag == "nullOr" then

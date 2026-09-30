@@ -44,19 +44,20 @@ let
     i:
     floe.mkSig {
       name = "CHAIN_${toString i}";
-      as = "link";
+      canonicalName = "link";
       description = "Benchmark signature for chain position ${toString i}.";
-      fields.v = T.str;
+      shape = T.record { v = T.str; };
     };
 
   # A narrow, nested output schema rather than `attrsOf any`: checking a real
   # `T.record` tree is work a real floe pays for, and `attrsOf any` skips it.
   fieldNames = lib.genList (k: "f${toString k}") weight;
 
-  kind = floe.mkOutputKind {
+  kind = floe.mkSig {
     name = "bench.out";
-    description = "Benchmark output kind.";
-    schema = T.record (
+    canonicalName = "bench";
+    description = "Benchmark output signature.";
+    shape = T.record (
       lib.genAttrs fieldNames (
         _:
         T.record {

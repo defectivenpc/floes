@@ -143,9 +143,13 @@ lib.runTests {
 
   # ---- What the deployer pays ------------------------------------------
 
-  # The ceremony number, not an opinion about it. Two databases mean every
-  # consumer of DATABASE must say which it means: one bind in the small link,
-  # twenty-three in the fleet.
+  # The ceremony number, not an opinion about it.
+  #
+  # A second provider of a signature used to break every existing consumer of it.
+  # `link { defaults.DATABASE = "main"; }` is one line that keeps the consumers
+  # with no opinion working, and it took the fleet from twenty-three binds to
+  # fifteen — against a deliberately adversarial round-robin spread across three
+  # databases. A fleet with one dominant database would keep almost none.
   testDeployerCost = {
     expr = nixos.deployerCost;
     expected = {
@@ -155,11 +159,31 @@ lib.runTests {
         binds = 1;
       };
       fleet = {
-        lines = 39;
+        lines = 37;
         unitCount = 29;
-        binds = 23;
+        binds = 15;
       };
     };
+  };
+
+  # And the default did not silently collapse them: each backup still dumps a
+  # different database. A default that quietly merged consumers would be worse
+  # than the breakage it replaced.
+  testTheDefaultDoesNotCollapseConsumers = {
+    expr =
+      let
+        f = nixos.fleet.out."nixos.config";
+      in
+      lib.sort (a: b: a < b) (
+        lib.concatMap (
+          u: lib.mapAttrsToList (_: v: v.serviceConfig.ExecStart) (f.${u}.systemd.services or { })
+        ) (lib.filter (lib.hasPrefix "backup-") (lib.attrNames f))
+      );
+    expected = [
+      "/run/current-system/sw/bin/pg_dump -h 127.0.0.1 -p 5432"
+      "/run/current-system/sw/bin/pg_dump -h 127.0.0.1 -p 5433"
+      "/run/current-system/sw/bin/pg_dump -h 127.0.0.1 -p 5434"
+    ];
   };
 
   testTheDeployerBlocksStayWithinBudget = {
@@ -319,24 +343,34 @@ lib.runTests {
     };
   };
 
-  # Two of the deliberate mistakes have no test here, and cannot have one.
+  # The error that used to be the worst in the system, now the best.
   #
-  # `builtins.tryEval` catches `throw` and `assert`, and nothing else. So whether
-  # a failure is testable turns out to track *who reported it*:
+  # `NETWORK.openPorts` is `T.derivedFrom PORT_CLAIM`, and `offender` contributes
+  # a PORT_CLAIM, so `link` refuses it that one field before anything evaluates.
+  # Before the marking existed this was `infinite recursion encountered` with no
+  # floe, hole or field named — and it was not even catchable by `tryEval`, so no
+  # test could hold it and nothing could wrap it in a better message.
   #
-  #   broken.leaky          floe's own `throw`       catchable, tested above
-  #   broken.interpolating  Nix: cannot coerce       escapes tryEval
-  #   broken.greedy         Nix: infinite recursion  escapes tryEval
+  # Note what still works: `nginx` requires the same hole from the same floe in
+  # the same cycle and reads `domain`, which is fine. The field decides it.
+  testAReadOfTheCollectionAContributorFeedsIsRefused = {
+    expr = fails nixos.broken.greedy.out;
+    expected = true;
+  };
+
+  # One deliberate mistake still has no test, and still cannot have one.
+  # `builtins.tryEval` catches `throw` and `assert`, and nothing else, so
+  # testability tracks *who reported the failure*:
   #
-  # `fails` on either of the last two takes the whole evaluation down with it.
-  # That is worth more than two passing tests, because it means the bad message
-  # cannot be wrapped in a better one either — nothing gets to run after it. A
-  # readable error for a structural read in a cycle has to come from rejecting
-  # the cycle *before* any body evaluates, which is what RFC 0001's
-  # stratification check would do, and why it is not merely cosmetic.
+  #   broken.leaky          floe's own `throw`      catchable, tested above
+  #   broken.greedy         floe's own `throw`      catchable, tested above
+  #   broken.interpolating  Nix: cannot coerce      escapes tryEval
   #
-  # Both are pinned in `examples/refuse.sh`, where a non-zero exit is the
-  # assertion.
+  # The middle row used to be in the third group. `T.derivedFrom` moved it, which
+  # is the whole argument for rejecting a bad read before evaluating rather than
+  # trying to explain it afterwards. The one that remains is RFC 0001's open
+  # question 1 — deferred transparency in interpolation — and it is pinned in
+  # `examples/refuse.sh`, where a non-zero exit is the assertion.
 
   # ---- The contrast ----------------------------------------------------
 

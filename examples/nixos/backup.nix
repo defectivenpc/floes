@@ -26,7 +26,7 @@ floe.mkFloe {
 
   requires.database = sigs.DATABASE;
 
-  out.nixos = kinds.nixosConfig (
+  out.nixosConfig = kinds.nixosConfig (
     T.record {
       systemd = T.record {
         services = T.attrsOf (
@@ -53,7 +53,7 @@ floe.mkFloe {
         db = config.floe.requires.database;
       in
       {
-        config.floe.out.nixos.systemd = {
+        config.floe.out.nixosConfig.systemd = {
           services.${inst} = {
             description = "Dump ${toString db.host}:${toString db.port} nightly";
             serviceConfig = {

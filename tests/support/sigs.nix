@@ -11,21 +11,21 @@ in
 {
   INGRESS = floe.mkSig {
     name = "INGRESS";
-    as = "ingress";
+    canonicalName = "ingress";
     description = "Fixture: an ingress with a base domain and an assigned address.";
-    fields = {
+    shape = T.record {
       baseDomain = T.dnsName;
       className = T.str;
-      # Only exists after apply; typed as deferred so eval-time misuse is an error.
-      address = T.deferred T.str;
+      # Only exists after apply; typed as runtime so eval-time misuse is an error.
+      address = T.runtime T.str;
     };
   };
 
   OBSERVER = floe.mkSig {
     name = "OBSERVER";
-    as = "observer";
+    canonicalName = "observer";
     description = "Fixture: something that collects dashboards from its peers.";
-    fields = {
+    shape = T.record {
       ingressUrl = T.url;
       dashboards = T.attrsOf (T.record { url = T.url; });
     };
@@ -33,9 +33,9 @@ in
 
   DASHBOARD_REQ = floe.mkSig {
     name = "DASHBOARD_REQ";
-    as = "dashboard";
+    canonicalName = "dashboard";
     description = "Fixture: a dashboard a workload asks an observer to render.";
-    fields = {
+    shape = T.record {
       app = T.k8sName;
       panels = T.listOf T.str;
     };

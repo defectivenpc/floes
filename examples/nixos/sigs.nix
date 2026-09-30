@@ -15,12 +15,12 @@
 let
   T = floe.T;
 in
-{
+rec {
   PORT_CLAIM = floe.mkSig {
     name = "PORT_CLAIM";
-    as = "ports";
+    canonicalName = "ports";
     description = "Ports a service needs reachable from outside the machine.";
-    fields = {
+    shape = T.record {
       tcp = T.listOf T.port;
     };
     # No `service` field: a collection is keyed by the unit that provided it,
@@ -29,9 +29,9 @@ in
 
   SCRAPE_TARGET = floe.mkSig {
     name = "SCRAPE_TARGET";
-    as = "scrape";
+    canonicalName = "scrape";
     description = "A metrics endpoint a workload wants collected.";
-    fields = {
+    shape = T.record {
       port = T.port;
       path = T.str;
     };
@@ -39,9 +39,9 @@ in
 
   ROUTE_CLAIM = floe.mkSig {
     name = "ROUTE_CLAIM";
-    as = "route";
+    canonicalName = "route";
     description = "A hostname a workload wants routed to one of its local ports.";
-    fields = {
+    shape = T.record {
       subdomain = T.str;
       port = T.port;
     };
@@ -49,9 +49,9 @@ in
 
   NETWORK = floe.mkSig {
     name = "NETWORK";
-    as = "network";
+    canonicalName = "network";
     description = "The machine's network identity, and what the firewall ended up opening.";
-    fields = {
+    shape = T.record {
       hostName = T.str;
       domain = T.dnsName;
 
@@ -59,20 +59,25 @@ in
       # networking floe's own inputs, not from the collection.
       externalInterface = T.str;
 
-      # NOT safe to read from such a floe. This is the merge of every
-      # PORT_CLAIM, so a contributor that reads it closes the loop. Same hole,
-      # same consumer — the field decides whether it recurses, which is why a
-      # future safety annotation would have to be per field and not per hole.
-      # `broken.nix` has the case and `../refuse.sh` pins what Nix says today.
-      openPorts = T.listOf T.port;
+      # Derived from the PORT_CLAIM collection this floe folds. A peer that
+      # contributes a claim *and* reads this would close the loop — computing its
+      # claim needs the fold, and the fold needs its claim. `link` refuses the
+      # field to exactly those peers, before anything evaluates, so what used to
+      # be `infinite recursion encountered` is now an error naming both floes and
+      # the collection.
+      #
+      # Note it is the field and not the hole: `nginx` requires this same hole
+      # from this same floe in this same cycle and is completely fine, because it
+      # reads `domain`.
+      openPorts = T.derivedFrom PORT_CLAIM (T.listOf T.port);
     };
   };
 
   DATABASE = floe.mkSig {
     name = "DATABASE";
-    as = "database";
+    canonicalName = "database";
     description = "A Postgres a workload on this machine can reach.";
-    fields = {
+    shape = T.record {
       host = T.str;
       port = T.port;
 
@@ -83,7 +88,7 @@ in
       # and generated it. A consumer that interpolates this into NixOS config
       # gets a type error from the linker naming postgres as the source, rather
       # than an attrset where NixOS wanted a string.
-      password = T.deferred T.str;
+      password = T.runtime T.str;
     };
 
     # Deliberately absent: `dataDir`. Postgres knows it, and in stock NixOS
@@ -96,9 +101,9 @@ in
 
   REVERSE_PROXY = floe.mkSig {
     name = "REVERSE_PROXY";
-    as = "proxy";
+    canonicalName = "proxy";
     description = "Something that routes public hostnames to local ports.";
-    fields = {
+    shape = T.record {
       baseDomain = T.dnsName;
       scheme = T.enum [
         "http"

@@ -1,21 +1,25 @@
-# Output kinds for the example distribution. Floe core knows none of these.
+# What the example floes emit. Signatures, like everything else a floe commits
+# to — there used to be a separate `mkOutputKind` for this and it was the same
+# record with a different word on it.
 { floe }:
 
 let
   T = floe.T;
 in
 {
-  k8s = floe.mkOutputKind {
+  k8s = floe.mkSig {
     name = "k8s.manifests";
-    description = "Fixture kind: rendered manifests, for the test suite.";
-    # Loose on purpose for the playground; tighten with T.record schemas later.
-    schema = T.attrsOf T.any;
+    canonicalName = "k8s";
+    description = "Fixture: rendered manifests, for the test suite.";
+    # Loose on purpose for the playground; a real one would narrow it.
+    shape = T.attrsOf T.any;
   };
 
-  meta = floe.mkOutputKind {
+  meta = floe.mkSig {
     name = "catallaxy.meta";
-    description = "Fixture kind: arbitrary metadata, for the test suite.";
-    schema = T.record {
+    canonicalName = "meta";
+    description = "Fixture: arbitrary metadata, for the test suite.";
+    shape = T.record {
       cluster = T.enum [
         "management"
         "observability"

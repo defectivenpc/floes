@@ -35,7 +35,7 @@ floe.mkFloe {
   collects.targets = sigs.SCRAPE_TARGET;
   provides.ports = sigs.PORT_CLAIM;
 
-  out.nixos = kinds.nixosConfig (
+  out.nixosConfig = kinds.nixosConfig (
     T.record {
       systemd = T.record {
         services = T.attrsOf (
@@ -71,7 +71,7 @@ floe.mkFloe {
       {
         config.floe.provides.ports.tcp = [ 9090 ];
 
-        config.floe.out.nixos = {
+        config.floe.out.nixosConfig = {
           systemd.services.prometheus = {
             description = "Prometheus on ${hostName}, ${toString (lib.length (lib.attrNames targets))} target(s)";
             wantedBy = [ "multi-user.target" ];

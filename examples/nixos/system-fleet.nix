@@ -25,9 +25,15 @@ let
     "archive"
   ];
 
-  # Spread the workloads across the databases, round robin. A deployer choosing
-  # by hand is the realistic case and this stands in for it.
+  # Spread the workloads across the databases, round robin. Deliberately
+  # adversarial for the `defaults` measurement: a real fleet usually has one
+  # dominant database and would see nearly every bind disappear, whereas this
+  # spread keeps two thirds of them. The number in `deployerCost` is the
+  # pessimistic one on purpose.
   dbFor = i: lib.elemAt databases (lib.mod i (lib.length databases));
+
+  # `main` is the default, so only the workloads that want something else say so.
+  bindDb = i: inst: if dbFor i == "main" then inst else inst.bind { database = dbFor i; };
 in
 {
   networking = floes.networking.instantiate {
@@ -49,14 +55,11 @@ in
 )
 // lib.listToAttrs (
   lib.imap0 (
-    i: name:
-    lib.nameValuePair name (
-      (floes.webapp.instantiate { port = 8080 + i; }).bind { database = dbFor i; }
-    )
+    i: name: lib.nameValuePair name (bindDb i (floes.webapp.instantiate { port = 8080 + i; }))
   ) workloads
 )
 // lib.listToAttrs (
   lib.imap0 (
-    i: db: lib.nameValuePair "backup-${db}" ((floes.backup.instantiate { }).bind { database = db; })
+    i: db: lib.nameValuePair "backup-${db}" (bindDb i (floes.backup.instantiate { }))
   ) databases
 )

@@ -35,7 +35,7 @@ floe.mkFloe {
     proxy = sigs.REVERSE_PROXY;
   };
 
-  out.nixos = kinds.nixosConfig (
+  out.nixosConfig = kinds.nixosConfig (
     T.record {
       services = T.record {
         nginx = T.record {
@@ -105,7 +105,7 @@ floe.mkFloe {
           scheme = "http";
         };
 
-        config.floe.out.nixos.services.nginx = {
+        config.floe.out.nixosConfig.services.nginx = {
           enable = true;
           recommendedProxySettings = true;
           virtualHosts = vhosts;

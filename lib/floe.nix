@@ -17,10 +17,10 @@ rec {
     check = isInstance;
   };
 
-  # Deferred-value token constructor, exposed to bodies as `floe.mkDeferred`
+  # Deferred-value token constructor, exposed to bodies as `floe.mkRuntime`
   # via specialArgs (bound to the unit's link name).
-  mkDeferredFor = instName: path: {
-    __deferred = true;
+  mkRuntimeFor = instName: path: {
+    __runtime = true;
     source = instName;
     inherit path;
     phase = "post-apply";
@@ -35,11 +35,21 @@ rec {
       inputs ? { },
       requires ? { },
 
-      requiresOptional ? { },
       collects ? { },
       provides ? { },
       out ? { },
+      # A body is either `modules` — ordinary NixOS modules, for a floe that wants
+      # the module system's merge inside itself — or `body`, a plain function.
+      # Most floes never merge anything, and pay a whole `evalModules` for the
+      # privilege; `body` is the same floe without it.
+      #
+      #   body = { inputs, requires, collects, floe }: { provides, out };
+      #
+      # `provides` still has to be *declared* above even with `body`, because the
+      # linker resolves every hole from headers before any body evaluates. That is
+      # what makes a link's wiring checkable without running anything.
       modules ? [ ],
+      body ? null,
 
       # singleton :: bool
       #
@@ -64,6 +74,18 @@ rec {
             + "Nix cannot read comments, so the header prose above reaches no tool; "
             + "this is the line the generated interface document titles it with."
           )
+        else
+          null;
+
+      _bodyForm =
+        if body != null && modules != [ ] then
+          throw (
+            "floe '${name}': has both `body` and `modules`. They are two spellings of "
+            + "one thing — `body` is a plain function, `modules` is the NixOS module "
+            + "system with its merge. Pick the one the floe needs."
+          )
+        else if body != null && !lib.isFunction body then
+          throw "floe '${name}': `body` must be a function of { inputs, requires, collects, floe }."
         else
           null;
 
@@ -112,47 +134,52 @@ rec {
           );
 
       def = builtins.seq _ (
-        builtins.seq _inputTypes {
-          __floeDef = true;
-          inherit
-            name
-            summary
-            inputs
-            requires
-            requiresOptional
-            collects
-            provides
-            out
-            modules
-            singleton
-            ;
+        builtins.seq _bodyForm (
+          builtins.seq _inputTypes {
+            __floeDef = true;
+            inherit
+              name
+              summary
+              inputs
+              requires
+              collects
+              provides
+              out
+              modules
+              body
+              singleton
+              ;
 
-          # instantiate :: attrset -> instance
-          # `inputsChecked` is validated and defaults-filled; `supplied` is
-          # verbatim, and wins when the floe is re-instantiated.
-          instantiate =
-            supplied:
-            let
-              inst = {
-                __floeInstance = true;
-                inherit def supplied;
-                inputsChecked = checkInputs supplied;
-                bindings = { };
+            # instantiate :: attrset -> instance
+            # `inputsChecked` is validated and defaults-filled; `supplied` is
+            # verbatim, and wins when the floe is re-instantiated.
+            instantiate =
+              supplied:
+              let
+                inst = {
+                  __floeInstance = true;
+                  inherit def supplied;
+                  inputsChecked = checkInputs supplied;
+                  bindings = { };
 
-                # bind :: { Hole -> "<unit>" | "<unit>/<provide>" } -> instance
-                # Which provider a hole means, when the deployer has two. The
-                # author cannot say: a floe does not know its peers' names.
-                bind = b: inst // { bindings = inst.bindings // b; };
-              };
-            in
-            inst;
-        }
+                  # bind :: { Hole -> "<unit>" | "<unit>/<provide>" } -> instance
+                  # Which provider a hole means, when the deployer has two. The
+                  # author cannot say: a floe does not know its peers' names.
+                  bind = b: inst // { bindings = inst.bindings // b; };
+                };
+              in
+              inst;
+          }
+        )
       );
     in
     def;
 
-  # evalFloe: run one floe's isolated evalModules with resolved requires
-  # injected. Used by the linker; not part of the author-facing API.
+  # evalFloe: evaluate one floe's body with its resolved holes injected, and
+  # return `{ provides, out }` whichever form the body took. The linker only ever
+  # sees the normalised shape, so `body` and `modules` are interchangeable to it.
+  #
+  # Not part of the author-facing API.
   evalFloe =
     {
       instance,
@@ -162,43 +189,77 @@ rec {
     }:
     let
       def = instance.def;
-      t = lib.types;
-      base = {
-        options.floe = {
-          name = lib.mkOption {
-            type = t.str;
-            default = instName;
+
+      # What a body is handed either way. `name` is here because a floe that can
+      # be instantiated twice has to key its output by it.
+      floeArg = {
+        name = instName;
+        mkRuntime = mkRuntimeFor instName;
+      };
+
+      viaBody =
+        let
+          r = def.body {
+            inputs = instance.inputsChecked;
+            requires = resolvedRequires;
+            collects = resolvedCollects;
+            floe = floeArg;
           };
-          inputs = lib.mkOption {
-            type = t.raw;
-            default = instance.inputsChecked;
+          unknown = lib.subtractLists [ "provides" "out" ] (lib.attrNames r);
+        in
+        if unknown != [ ] then
+          throw (
+            "floe '${instName}': its `body` returned unknown key(s) "
+            + "${lib.concatStringsSep ", " unknown}. A body returns { provides, out }."
+          )
+        else
+          {
+            provides = r.provides or { };
+            out = r.out or { };
           };
-          requires = lib.mkOption {
-            type = t.raw;
-            default = resolvedRequires;
+
+      viaModules =
+        let
+          t = lib.types;
+          base = {
+            options.floe = {
+              name = lib.mkOption {
+                type = t.str;
+                default = instName;
+              };
+              inputs = lib.mkOption {
+                type = t.raw;
+                default = instance.inputsChecked;
+              };
+              requires = lib.mkOption {
+                type = t.raw;
+                default = resolvedRequires;
+              };
+              collects = lib.mkOption {
+                type = t.raw;
+                default = resolvedCollects;
+              };
+              provides = lib.mkOption {
+                type = t.attrsOf t.raw;
+                default = { };
+              };
+              out = lib.mapAttrs (
+                _name: _sig:
+                lib.mkOption {
+                  type = t.attrsOf t.raw;
+                  default = { };
+                }
+              ) def.out;
+            };
           };
-          collects = lib.mkOption {
-            type = t.raw;
-            default = resolvedCollects;
+          ev = lib.evalModules {
+            specialArgs.floe = floeArg;
+            modules = def.modules ++ [ base ];
           };
-          provides = lib.mkOption {
-            type = t.attrsOf t.raw;
-            default = { };
-          };
-          out = lib.mapAttrs (
-            _kName: _kind:
-            lib.mkOption {
-              type = t.attrsOf t.raw;
-              default = { };
-            }
-          ) def.out;
+        in
+        {
+          inherit (ev.config.floe) provides out;
         };
-      };
     in
-    lib.evalModules {
-      specialArgs.floe = {
-        mkDeferred = mkDeferredFor instName;
-      };
-      modules = def.modules ++ [ base ];
-    };
+    if def.body != null then viaBody else viaModules;
 }

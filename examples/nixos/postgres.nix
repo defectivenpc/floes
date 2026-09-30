@@ -49,7 +49,7 @@ floe.mkFloe {
     database = sigs.DATABASE;
   };
 
-  out.nixos = kinds.nixosConfig (
+  out.nixosConfig = kinds.nixosConfig (
     T.record {
       systemd = T.record {
         services = T.attrsOf (
@@ -76,7 +76,7 @@ floe.mkFloe {
 
   modules = [
     (
-      # `floe` here is the specialArg the linker injects, carrying `mkDeferred`
+      # `floe` here is the specialArg the linker injects, carrying `mkRuntime`
       # bound to this unit's name — not the library this file was passed.
       { config, floe, ... }:
       let
@@ -98,13 +98,13 @@ floe.mkFloe {
           # Generated on first start. A consumer that interpolates this into
           # NixOS config gets an eval error naming this instance as the source
           # — and with two instances, naming *which* one.
-          password = floe.mkDeferred [
+          password = floe.mkRuntime [
             "database"
             "password"
           ];
         };
 
-        config.floe.out.nixos = {
+        config.floe.out.nixosConfig = {
           systemd = {
             services.${svc} = {
               description = "PostgreSQL (${inst}) on port ${toString port}";

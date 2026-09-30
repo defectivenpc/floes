@@ -13,9 +13,18 @@ let
   T = floe.T;
   SELF = floe.mkSig {
     name = "SELF";
-    as = "self";
+    canonicalName = "self";
     description = "Fixture: a signature a floe provides and tries to require.";
-    fields.v = T.str;
+    shape = T.record { v = T.str; };
+  };
+
+  # A consumer echoes back what its hole resolved to, so a silent
+  # non-resolution fails the test rather than passing it quietly.
+  ECHO = floe.mkSig {
+    name = "ECHO";
+    canonicalName = "echo";
+    description = "Fixture: echoes back what a hole resolved to.";
+    shape = T.record { v = T.str; };
   };
 
   # One floe, one signature, and a switch for whether it also asks for it.
@@ -114,90 +123,6 @@ let
     name = T.str;
     config = unionTy;
   };
-
-  # ---- externals: a hole answered from outside this link -------------------
-  #
-  # It echoes what it resolved, because declaring a hole forces nothing.
-  ECHO = floe.mkSig {
-    name = "ECHO";
-    as = "echo";
-    description = "Fixture: echoes back what a hole resolved to, so a silent non-resolution fails.";
-    fields.v = T.str;
-  };
-
-  # Two consumers of one signature, one reading a portable field and one a
-  # local one: the same external is correct for the first and an error for
-  # the second.
-  mkConsumer =
-    { name, field }:
-    floe.mkFloe {
-      inherit name;
-      summary = "Fixture floe for a test suite.";
-      requires.ingress = MIXED_INGRESS;
-      provides.echo = ECHO;
-      modules = [
-        (
-          { config, ... }:
-          {
-            config.floe.provides.echo.v = config.floe.requires.ingress.${field};
-          }
-        )
-      ];
-    };
-
-  consumer = mkConsumer {
-    name = "consumer";
-    field = "baseDomain";
-  };
-  localConsumer = mkConsumer {
-    name = "local-consumer";
-    field = "className";
-  };
-
-  # `baseDomain` travels. `className` is an ingress class registered in the
-  # cluster that provided it and means nothing anywhere else.
-  MIXED_INGRESS = floe.mkSig {
-    name = "INGRESS";
-    as = "ingress";
-    description = "Fixture: an ingress whose fields are half portable and half link-local.";
-    fields = fixture.sigs.INGRESS.fields // {
-      className = T.local T.str;
-    };
-  };
-
-  # Every field local, so nothing in it would be readable here.
-  ALL_LOCAL = floe.mkSig {
-    name = "ALL_LOCAL";
-    as = "allLocal";
-    description = "Fixture: every field local, so the signature cannot cross a link boundary at all.";
-    fields.crdKinds = T.local (T.listOf T.str);
-  };
-
-  externalIngress = {
-    sig = MIXED_INGRESS;
-    origin = "cluster 'mgmt'";
-    value = {
-      baseDomain = "elsewhere.example.com";
-      className = "nginx";
-      # The token shape `mkDeferred` produces, written out: the constructor
-      # is bound to a unit of the link, and this value comes from outside one.
-      address = {
-        __deferred = true;
-        source = "mgmt/ingress";
-        path = [ "address" ];
-        phase = "post-apply";
-      };
-    };
-  };
-
-  withExternal =
-    ext:
-    floe.link {
-      units.consumer = consumer.instantiate { };
-      scope = ext;
-    };
-
-  linkedExternally = withExternal { ingress = externalIngress; };
 
   deployment = fixture.deployment;
 
@@ -366,135 +291,6 @@ in
       "k8s.manifests"
     ];
   };
-
-  # ---- externals ----------------------------------------------------------
-
-  # A hole nothing in this link provides, answered anyway: the value crossed
-  # the boundary, was sealed, reached `config.floe.requires`, and came out.
-  testAScopeProvideAnswersAHole = {
-    expr = linkedExternally.provides.consumer.echo.v;
-    expected = "elsewhere.example.com";
-  };
-
-  # A link with the hole and no external is still the error it always was.
-  # The paired negative, so the test above cannot pass for the wrong reason.
-  testWithoutTheScopeTheHoleIsUnfilled = {
-    expr = fails (withExternal { }).provides.consumer.echo.v;
-    expected = true;
-  };
-
-  # Sealed like any other provide. A value assembled outside this link is the
-  # least likely place for a wrong shape to be noticed, and a body reading a
-  # field that is not there fails far from the cause.
-  testAScopeProvideIsSealedAgainstItsSignature = {
-    expr =
-      fails
-        (withExternal {
-          ingress = externalIngress // {
-            value = removeAttrs externalIngress.value [ "className" ];
-          };
-        }).provides.consumer.echo.v;
-    expected = true;
-  };
-
-  # Nearer wins: a unit of this link shadows a provider from the enclosing
-  # scope. A cluster with its own gateway keeps it; one without takes the
-  # lab's.
-  testALocalProviderShadowsTheScope = {
-    expr =
-      (floe.link {
-        units = {
-          consumer = consumer.instantiate { };
-          ingress = fixture.floes.nginxIngress.instantiate { baseDomain = "lab.example.com"; };
-        };
-        scope.ingress = externalIngress;
-      }).provides.consumer.echo.v;
-    expected = "lab.example.com";
-  };
-
-  # An external is not a node, so it is not in the graph and orders nothing.
-  # Whatever backs it is applied by a different pass entirely, and an edge
-  # here would be an edge to a node that does not exist.
-  testAScopeProvideAddsNoEdgeAndNoNode = {
-    expr = {
-      nodes = linkedExternally.graph.nodes;
-      edges = linkedExternally.graph.edges;
-    };
-    expected = {
-      nodes = [ "consumer" ];
-      edges = [ ];
-    };
-  };
-
-  # `wiring.one` is what every existing reader walks to derive order, so an
-  # externally-resolved hole must not appear in it. It appears in `external`
-  # instead, which is how a reader that *does* care can ask.
-  testScopeHolesAreReportedApartFromLocalOnes = {
-    expr = {
-      one = linkedExternally.wiring.one.consumer;
-      scope = linkedExternally.wiring.scope.consumer;
-    };
-    expected = {
-      one = { };
-      scope.ingress.scope = "ingress";
-    };
-  };
-
-  # ---- locality ------------------------------------------------------------
-
-  # A local field is ordinary inside the link that produced it. Locality is
-  # about which link is *reading*, so it can never be a check on the value.
-  testALocalFieldIsOrdinaryAtHome = {
-    expr =
-      (floe.link {
-        units = {
-          ingress = fixture.floes.nginxIngress.instantiate { baseDomain = "lab.example.com"; };
-          local-consumer = localConsumer.instantiate { };
-        };
-      }).provides.local-consumer.echo.v;
-    expected = "nginx";
-  };
-
-  # And an error the moment it is read through an external, because there is
-  # no value that would be right — not because this one failed a check.
-  testReadingALocalFieldAcrossALinkIsAnError = {
-    expr =
-      fails
-        (floe.link {
-          units.local-consumer = localConsumer.instantiate { };
-          scope.ingress = externalIngress;
-        }).provides.local-consumer.echo.v;
-    expected = true;
-  };
-
-  # The paired positive, and the reason this is per field: the *same* external
-  # read for something that does travel is correct. Without it the throw above
-  # could be any failure at all.
-  testAPortableFieldOnTheSameScopeProvideStillReads = {
-    expr = linkedExternally.provides.consumer.echo.v;
-    expected = "elsewhere.example.com";
-  };
-
-  # Nothing portable in it, so a hole resolved against it resolves to nothing
-  # usable. Refused up front, and derived from the fields, so a signature that
-  # gains a routed address starts crossing on its own.
-  testAnAllLocalSignatureIsRefusedFromScope = {
-    expr =
-      fails
-        (floe.link {
-          units.consumer = consumer.instantiate { };
-          scope = {
-            ingress = externalIngress;
-            other = {
-              sig = ALL_LOCAL;
-              origin = "cluster 'mgmt'";
-              value.crdKinds = [ "kind:example.io/Widget" ];
-            };
-          };
-        }).provides;
-    expected = true;
-  };
-
   # What an unfilled hole is able to suggest. A throw's text is unreachable
   # from `tryEval`, so the listing is tested here and the sentence around it
   # is not tested at all.
@@ -630,8 +426,8 @@ in
     expr = fails (
       floe.mkSig {
         name = "X";
-        as = "x";
-        fields = { };
+        canonicalName = "x";
+        shape = T.record { };
       }
     );
     expected = true;
@@ -642,7 +438,7 @@ in
       floe.mkSig {
         name = "X";
         description = "d";
-        fields = { };
+        shape = T.record { };
       }
     );
     expected = true;
@@ -652,16 +448,6 @@ in
   # tool and the only machine-readable thing about it is its name.
   testAFloeMustSayWhatItInstalls = {
     expr = fails (floe.mkFloe { name = "x"; });
-    expected = true;
-  };
-
-  testAnOutputKindMustSayWhatItCarries = {
-    expr = fails (
-      floe.mkOutputKind {
-        name = "x.y";
-        schema = T.any;
-      }
-    );
     expected = true;
   };
 

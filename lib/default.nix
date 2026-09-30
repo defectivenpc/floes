@@ -13,11 +13,9 @@ let
 in
 {
   T = types;
-  inherit (types) checkValue isDeferredToken;
+  inherit (types) checkValue isRuntimeToken;
   inherit (interfaces)
     mkSig
-    mkOutputKind
-    isUncrossable
     renderInputs
     ;
   inherit (floe) mkFloe isInstance instanceType;

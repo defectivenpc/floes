@@ -28,7 +28,7 @@ floe.mkFloe {
   requires.network = sigs.NETWORK;
   provides.proxy = sigs.REVERSE_PROXY;
 
-  out.nixos = kinds.nixosConfig (
+  out.nixosConfig = kinds.nixosConfig (
     T.record {
       services = T.record { caddy = T.record { enable = T.bool; }; };
     }
@@ -42,7 +42,7 @@ floe.mkFloe {
           baseDomain = config.floe.requires.network.domain;
           scheme = "https";
         };
-        config.floe.out.nixos.services.caddy.enable = true;
+        config.floe.out.nixosConfig.services.caddy.enable = true;
       }
     )
   ];

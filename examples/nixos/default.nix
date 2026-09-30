@@ -35,7 +35,12 @@ let
   fleetUnits = import ./system-fleet.nix { inherit lib floes; };
 
   link = floe.link { inherit units; };
-  fleet = floe.link { units = fleetUnits; };
+  # One line so that adding the second and third database did not break the
+  # seventeen consumers that had no opinion about which one they wanted.
+  fleet = floe.link {
+    units = fleetUnits;
+    defaults.DATABASE = "main";
+  };
 
   # ---- The adapter ------------------------------------------------------
   #
@@ -48,7 +53,7 @@ let
   #
   # There is no guard against a deferred value reaching here, because there
   # cannot be one: every fragment is checked against its floe's own output
-  # schema, and `T.deferred` where a concrete type is declared is already an
+  # schema, and `T.runtime` where a concrete type is declared is already an
   # error at link. `lib/types.nix` does it, naming the floe the value came from.
   toNixosModules =
     result:
@@ -205,6 +210,12 @@ in
         units = units // {
           offender = def.instantiate { };
         };
+        # Without this the offender's DATABASE hole is ambiguous — two postgres
+        # instances answer it — and each of these links would fail on *that*
+        # instead of on the mistake it exists to demonstrate. Which is the
+        # clearest argument for `defaults` there is: one line, and every
+        # consumer that has no opinion keeps working.
+        defaults.DATABASE = "main";
       }
     ) bad;
 }

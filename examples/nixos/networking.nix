@@ -45,7 +45,7 @@ floe.mkFloe {
   collects.claims = sigs.PORT_CLAIM;
   provides.network = sigs.NETWORK;
 
-  out.nixos = kinds.nixosConfig (
+  out.nixosConfig = kinds.nixosConfig (
     T.record {
       networking = T.record {
         hostName = T.str;
@@ -102,7 +102,7 @@ floe.mkFloe {
           inherit openPorts;
         };
 
-        config.floe.out.nixos.networking = {
+        config.floe.out.nixosConfig.networking = {
           inherit (config.floe.inputs) hostName domain;
           firewall = {
             enable = true;

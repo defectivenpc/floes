@@ -7,35 +7,33 @@ let
   sigs = {
     CLUSTER = floe.mkSig {
       name = "CLUSTER";
-      as = "cluster";
+      canonicalName = "cluster";
       description = "A Kubernetes cluster to install into.";
-      fields = {
+      shape = T.record {
         version = T.str;
-        # Link-local: a cluster's API endpoint means nothing in another link,
-        # so a consumer elsewhere is refused this field rather than handed a
-        # value that points at the wrong place.
-        apiServer = T.local T.url;
+        apiServer = T.url;
       };
     };
 
     ISSUER = floe.mkSig {
       name = "ISSUER";
-      as = "issuer";
+      canonicalName = "issuer";
       description = "Something that can sign certificates in this cluster.";
-      fields = {
+      shape = T.record {
         name = T.str;
         # Not known until cert-manager has generated its CA.
-        caFingerprint = T.deferred T.str;
+        caFingerprint = T.runtime T.str;
       };
     };
   };
 
   # One loose kind, shared. See the header: a manifest has no shape worth
   # declaring
-  manifests = floe.mkOutputKind {
+  manifests = floe.mkSig {
     name = "k8s.manifests";
+    canonicalName = "k8s";
     description = "Rendered Kubernetes resources, keyed by name.";
-    schema = T.attrsOf T.any;
+    shape = T.attrsOf T.any;
   };
 
   cluster = floe.mkFloe {
@@ -77,7 +75,7 @@ let
         {
           config.floe.provides.issuer = {
             name = "cluster-ca";
-            caFingerprint = floe.mkDeferred [
+            caFingerprint = floe.mkRuntime [
               "issuer"
               "caFingerprint"
             ];

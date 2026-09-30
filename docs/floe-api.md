@@ -159,7 +159,7 @@ refuses a `lib.types` in anything that crosses.
 | `T.record`                                    | a fixed set of named fields                                               |
 | `T.taggedUnion`                               | externally tagged; matches serde's default                                |
 | `T.local`                                     | **does not cross a cluster boundary**                                     |
-| `T.deferred`                                  | a value not known until apply — the linker derives a deploy edge from one |
+| `T.runtime`                                   | a value not known until apply — the linker derives a deploy edge from one |
 | `T.moduleType`                                | a NixOS type, for a field that is a schema                                |
 
 A distribution may add its own. Catallaxy's `k8sName` lives in its prelude

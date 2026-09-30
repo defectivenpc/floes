@@ -29,7 +29,7 @@ in
 
     requires.network = sigs.NETWORK;
     provides.ports = sigs.PORT_CLAIM;
-    out.nixos = kinds.nixosConfig (T.record { services = T.attrsOf T.any; });
+    out.nixosConfig = kinds.nixosConfig (T.record { services = T.attrsOf T.any; });
 
     modules = [
       (
@@ -37,7 +37,7 @@ in
         {
           config.floe.provides.ports.tcp =
             if lib.elem 9000 config.floe.requires.network.openPorts then [ 9001 ] else [ 9000 ];
-          config.floe.out.nixos.services = { };
+          config.floe.out.nixosConfig.services = { };
         }
       )
     ];
@@ -54,7 +54,7 @@ in
     summary = "Broken on purpose: puts a deferred secret in NixOS config.";
 
     requires.database = sigs.DATABASE;
-    out.nixos = kinds.nixosConfig (
+    out.nixosConfig = kinds.nixosConfig (
       T.record {
         systemd = T.record {
           services = T.attrsOf (T.record { environment = T.attrsOf T.str; });
@@ -66,7 +66,7 @@ in
       (
         { config, ... }:
         {
-          config.floe.out.nixos.systemd.services.leaky.environment.DB_PASSWORD =
+          config.floe.out.nixosConfig.systemd.services.leaky.environment.DB_PASSWORD =
             config.floe.requires.database.password;
         }
       )
@@ -76,7 +76,7 @@ in
   # 3. The same mistake, written as string interpolation.
   #
   # Here the token is coerced before anything typed ever sees it, so the error
-  # is Nix's: "cannot coerce a set to a string: { __deferred = true; ... }".
+  # is Nix's: "cannot coerce a set to a string: { __runtime = true; ... }".
   # It is worse than (2) — no path, no explanation — but not useless, because
   # Nix prints the token and `source = "postgres"` is right there in it.
   #
@@ -88,7 +88,7 @@ in
     summary = "Broken on purpose: interpolates a deferred secret into a string.";
 
     requires.database = sigs.DATABASE;
-    out.nixos = kinds.nixosConfig (
+    out.nixosConfig = kinds.nixosConfig (
       T.record {
         systemd = T.record {
           services = T.attrsOf (T.record { environment = T.attrsOf T.str; });
@@ -103,7 +103,7 @@ in
           db = config.floe.requires.database;
         in
         {
-          config.floe.out.nixos.systemd.services.interpolating.environment.DATABASE_URL =
+          config.floe.out.nixosConfig.systemd.services.interpolating.environment.DATABASE_URL =
             "postgresql://webapp:${db.password}@${db.host}:${toString db.port}/webapp";
         }
       )

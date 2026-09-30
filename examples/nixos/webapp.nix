@@ -44,7 +44,7 @@ floe.mkFloe {
     scrape = sigs.SCRAPE_TARGET;
   };
 
-  out.nixos = kinds.nixosConfig (
+  out.nixosConfig = kinds.nixosConfig (
     T.record {
       systemd = T.record {
         services = T.attrsOf (
@@ -81,7 +81,7 @@ floe.mkFloe {
           path = "/metrics";
         };
 
-        config.floe.out.nixos.systemd.services.${inst} = {
+        config.floe.out.nixosConfig.systemd.services.${inst} = {
           description = "Workload ${inst} at ${host}";
           wantedBy = [ "multi-user.target" ];
           after = [ "network.target" ];

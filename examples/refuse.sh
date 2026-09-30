@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# The two failures no Nix test can hold.
+# The one failure no Nix test can hold.
 #
 # `builtins.tryEval` catches `throw` and `assert`, and nothing else — so a
 # failure reported by Nix's own machinery rather than by floe takes the whole
 # evaluation down with it, and `tests/examples.nix` cannot assert on it. Here a
 # non-zero exit from `nix eval` is the assertion instead.
 #
-# Both cases are described in `examples/nixos/broken.nix`. The third deliberate
-# mistake there, `leaky`, *is* a floe `throw` and is tested normally.
+# There used to be two. `broken.greedy` — a floe reading the collection it
+# contributes to — was `infinite recursion encountered` until `T.derivedFrom`
+# made `link` refuse the read up front; it is a floe `throw` now, and has a
+# real test. `broken.leaky` always was one. This is what is left:
+# a runtime token coerced by string interpolation, where Nix reports before
+# anything typed sees it. RFC 0001, open question 1.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -23,7 +27,7 @@ force() {
 }
 
 status=0
-for case in interpolating greedy; do
+for case in interpolating; do
   if out=$(force "$case"); then
     echo "FAIL: broken.$case evaluated and must not (got: $out)" >&2
     status=1

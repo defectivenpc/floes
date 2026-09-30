@@ -96,9 +96,9 @@ in
         n:
         floe.mkSig {
           name = "LOOP_${n}";
-          as = "loop${n}";
+          canonicalName = "loop${n}";
           description = "Fixture: a post-apply address, one half of a cycle.";
-          fields.address = floe.T.deferred floe.T.str;
+          shape = floe.T.record { address = floe.T.runtime floe.T.str; };
         };
 
       a = loopSig "A";
@@ -120,7 +120,7 @@ in
             (
               { config, floe, ... }:
               {
-                config.floe.provides.mine.address = floe.mkDeferred [ "address" ];
+                config.floe.provides.mine.address = floe.mkRuntime [ "address" ];
                 config.floe.out.k8s.waiter.metadata.annotations.peer = config.floe.requires.peer.address;
               }
             )

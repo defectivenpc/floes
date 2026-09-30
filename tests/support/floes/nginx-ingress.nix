@@ -35,7 +35,7 @@ floe.mkFloe {
         baseDomain = config.floe.inputs.baseDomain;
         className = config.floe.inputs.className;
         # Not known until the LoadBalancer exists: emit a deferred token.
-        address = floe.mkDeferred [
+        address = floe.mkRuntime [
           "status"
           "loadBalancer"
           "ip"

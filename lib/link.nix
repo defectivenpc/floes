@@ -1,6 +1,6 @@
 # link: resolve holes by signature name, tie the graph with lib.fix, seal
-# provides against signatures, collect outputs by kind, scan for deferred
-# tokens to derive deploy edges and phases, then run policies.
+# provides against signatures, collect outputs by signature name, scan for
+# runtime tokens to derive deploy edges and phases, then run policies.
 {
   lib,
   types,
@@ -24,7 +24,13 @@ in
       units,
       policies ? [ ],
 
-      scope ? { },
+      # defaults :: { SignatureName -> "<unit>" | "<unit>/<provide>" }
+      #
+      # Which provider a hole means when its consumer did not say. The deployer's,
+      # in one place, and applied only where a unit gave no `.bind` of its own —
+      # so adding a second provider stops being a breaking change to every
+      # existing consumer, without making ambiguity silent where nobody decided.
+      defaults ? { },
 
       # catalogue :: { FloeName -> [SignatureName] }
       # What could fill an unfilled hole. Forced on the error path alone, and
@@ -33,9 +39,6 @@ in
     }:
     let
       instNames = lib.attrNames units;
-      scopeNames = lib.attrNames scope;
-
-      isFromScope = p: p ? scope;
 
       getInstance =
         u:
@@ -73,46 +76,72 @@ in
 
       # `sigName` is the index's key and not part of a provider reference —
       # these records reach `result.wiring`, where an extra field would show.
-      localProvidersOf = sigName: map (p: removeAttrs p [ "sigName" ]) (providerIndex.${sigName} or [ ]);
-
-      scopeProvidersOf =
-        sigName: lib.concatMap (n: lib.optional (scope.${n}.sig.name == sigName) { scope = n; }) scopeNames;
-
-      providersOf =
-        sigName:
-        let
-          here = localProvidersOf sigName;
-        in
-        if here != [ ] then here else scopeProvidersOf sigName;
+      providersOf = sigName: map (p: removeAttrs p [ "sigName" ]) (providerIndex.${sigName} or [ ]);
 
       describeProviders =
-        ps:
-        lib.concatMapStringsSep ", " (
-          p:
-          if isFromScope p then
-            "'${p.scope}' (from the enclosing scope${
-              lib.optionalString (scope.${p.scope} ? origin) ": ${scope.${p.scope}.origin}"
-            })"
-          else
-            "'${p.instName}' (as ${p.provideName})"
-        ) ps;
+        ps: lib.concatMapStringsSep ", " (p: "'${p.instName}' (as ${p.provideName})") ps;
+
+      # Every surface of every floe, as (floe, surface, holeName, signature).
+      # One list, because four separate walks of the same data is four places to
+      # forget a surface.
+      allSurfaces = lib.concatMap (
+        u:
+        let
+          def = (getInstance u).def;
+        in
+        lib.concatMap
+          (
+            surface:
+            lib.mapAttrsToList (holeName: sig: {
+              inherit
+                u
+                surface
+                holeName
+                sig
+                ;
+            }) def.${surface}
+          )
+          [
+            "requires"
+            "collects"
+            "provides"
+            "out"
+          ]
+      ) instNames;
+
+      # A name may not mean two different signatures.
+      #
+      # Not the other direction: a floe may legitimately hold two holes on one
+      # signature — a primary and a replica database — so a signature cannot be
+      # pinned to a single name. What goes wrong in practice is the reverse, and
+      # it is what `canonicalName` exists to prevent: `provides.operator` meaning
+      # four different things across a catalogue, so a reader cannot tell which.
+      nameCollisions =
+        let
+          byName = lib.groupBy (e: e.holeName) allSurfaces;
+          ambiguous = lib.filterAttrs (_: es: lib.length (lib.unique (map (e: e.sig.name) es)) > 1) byName;
+        in
+        lib.mapAttrsToList (
+          holeName: es:
+          "'${holeName}' names ${toString (lib.length (lib.unique (map (e: e.sig.name) es)))} signatures: "
+          + lib.concatMapStringsSep ", " (
+            e: "'${e.sig.name}' (${e.u}'s ${e.surface}, canonically '${e.sig.canonicalName}')"
+          ) es
+        ) ambiguous;
 
       selfResolutions = lib.concatMap (
         u:
         let
           inst = getInstance u;
-          holesOf =
-            label: decl:
-            lib.concatLists (
-              lib.mapAttrsToList (
-                hole: sig:
-                map (
-                  p: "floe '${u}' ${label} '${sig.name}' as hole '${hole}' and also provides it (as ${p.provideName})"
-                ) (lib.filter (p: !(isFromScope p) && p.instName == u) (localProvidersOf sig.name))
-              ) decl
-            );
         in
-        holesOf "requires" inst.def.requires ++ holesOf "optionally requires" inst.def.requiresOptional
+        lib.concatLists (
+          lib.mapAttrsToList (
+            hole: sig:
+            map (
+              p: "floe '${u}' requires '${sig.name}' as hole '${hole}' and also provides it (as ${p.provideName})"
+            ) (lib.filter (p: p.instName == u) (providersOf sig.name))
+          ) inst.def.requires
+        )
       ) instNames;
 
       # Two instances of a floe that declared itself a singleton. Its body writes
@@ -132,30 +161,35 @@ in
           + lib.concatMapStringsSep ", " (u: "'${u}'") us
         ) (lib.filterAttrs (_: us: lib.length us > 1) byFloe);
 
-      # A binding says which provider a hole means, spelled `<unit>` or
-      # `<unit>/<provide>` as `offers` is. It narrows the candidates; the
-      # arity rules below then apply to what is left.
-      bindingOf = u: hole: (getInstance u).bindings.${hole} or null;
+      # Which provider a hole means: the unit's own `.bind` first, then the
+      # link's `defaults` for that signature, then nothing.
+      wantedBy =
+        u: hole: sig:
+        (getInstance u).bindings.${hole} or (defaults.${sig.name} or null);
 
       narrowed =
         u: hole: sig: ps:
         let
-          want = bindingOf u hole;
-          matches = p: p ? instName && (p.instName == want || "${p.instName}/${p.provideName}" == want);
+          want = wantedBy u hole sig;
+          matches = p: p.instName == want || "${p.instName}/${p.provideName}" == want;
           kept = lib.filter matches ps;
         in
         if want == null then
           ps
+        # A default that names nothing here is not an error: it is a default for
+        # a signature this link may not even use. A `.bind` that names nothing is.
         else if kept == [ ] then
-          throw (
-            "floe link error: unit '${u}' binds hole '${hole}' to '${want}', which does not "
-            + "provide '${sig.name}' here. Provided by: ${describeProviders ps}."
-          )
+          if (getInstance u).bindings ? ${hole} then
+            throw (
+              "floe link error: unit '${u}' binds hole '${hole}' to '${want}', which does not "
+              + "provide '${sig.name}' here. Provided by: ${describeProviders ps}."
+            )
+          else
+            ps
         else if lib.length kept > 1 then
           throw (
-            "floe link error: unit '${u}' binds hole '${hole}' to '${want}', which provides "
-            + "'${sig.name}' more than once: ${describeProviders kept}. Name the provide too, "
-            + "as `<unit>/<provide>`."
+            "floe link error: '${want}' provides '${sig.name}' more than once: "
+            + "${describeProviders kept}. Name the provide too, as `<unit>/<provide>`."
           )
         else
           kept;
@@ -174,14 +208,12 @@ in
             throw (
               "floe link error: no provider for signature '${sig.name}' "
               + "(required by '${u}' as hole '${hole}').\n"
-              + "  In this cluster: ${lib.concatStringsSep ", " instNames}\n"
+              + "  In this link: ${lib.concatStringsSep ", " instNames}\n"
               + (
                 if candidates == [ ] then
                   "  Nothing available provides it."
                 else
-                  "  Provided by: ${lib.concatStringsSep ", " candidates}. "
-                  + "Add one to this cluster, or expose it from another with "
-                  + "`lab.clusters.<c>.offers`."
+                  "  Provided by: ${lib.concatStringsSep ", " candidates}. Add one to this link."
               )
             )
           else if lib.length ps > 1 then
@@ -189,82 +221,73 @@ in
               "floe link error: signature '${sig.name}' (required by unit "
               + "'${u}' as hole '${hole}') is provided by multiple units: "
               + "${describeProviders ps}. Say which this unit means with "
-              + "`.bind { ${hole} = \"<unit>\"; }`, or remove one."
+              + "`.bind { ${hole} = \"<unit>\"; }`, or which every unit means with "
+              + "`link { defaults.${sig.name} = \"<unit>\"; }`, or remove one."
             )
           else
             lib.head ps
         ) inst.def.requires
       ) (lib.genAttrs instNames getInstance);
 
-      wiringOptional = lib.mapAttrs (
-        u: inst:
-        lib.mapAttrs (
-          hole: sig:
-          let
-            ps = narrowed u hole sig (providersOf sig.name);
-          in
-          if lib.length ps > 1 then
-            throw (
-              "floe link error: signature '${sig.name}' (optionally required by "
-              + "unit '${u}' as hole '${hole}') is provided by multiple units: "
-              + "${describeProviders ps}. Say which this unit means with "
-              + "`.bind { ${hole} = \"<unit>\"; }`, or remove one."
-            )
-          else
-            (if ps == [ ] then null else lib.head ps)
-        ) inst.def.requiresOptional
-      ) (lib.genAttrs instNames getInstance);
-
-      # The third arity: every provider rather than the one. This link's own
+      # The second arity: every provider rather than the one. This link's own
       # units, and never the collecting unit itself — a floe that answers the
-      # signature reads `config.floe.provides` and needs no link to do it.
+      # signature reads its own provide and needs no link to do it.
       wiringAll = lib.mapAttrs (
         u: inst:
-        lib.mapAttrs (
-          _hole: sig: lib.filter (p: p.instName != u) (localProvidersOf sig.name)
-        ) inst.def.collects
+        lib.mapAttrs (_hole: sig: lib.filter (p: p.instName != u) (providersOf sig.name)) inst.def.collects
       ) (lib.genAttrs instNames getInstance);
 
-      localOnly = lib.filterAttrs (_hole: p: p != null && !(isFromScope p));
-      fromScopeOnly = lib.filterAttrs (_hole: p: p != null && isFromScope p);
+      # ---- Withholding a field derived from a collection --------------------
+      #
+      # `T.derivedFrom C inner` marks a field a provider computed by folding its
+      # collection of `C`. A consumer that *contributes* a `C` to that same
+      # provider and then reads the field closes the loop: computing its own
+      # contribution needs the fold, and the fold needs its contribution. Nix
+      # says `infinite recursion encountered`, names nothing, and `tryEval`
+      # cannot even catch it.
+      #
+      # So the linker refuses the field instead, before anything evaluates. Both
+      # facts it needs are in the headers: who provides `C`, and who collects it.
+      collectsSig =
+        u: sigName: lib.any (sig: sig.name == sigName) (lib.attrValues (getInstance u).def.collects);
+
+      providesSig = u: sigName: lib.any (p: p.instName == u) (providersOf sigName);
+
+      # withheld :: consumer -> providerUnit -> signature -> value -> value
+      withheld =
+        u: from: sig: value:
+        let
+          fields = sig.shape.fields or { };
+        in
+        if (sig.shape.tag or "") != "record" then
+          value
+        else
+          lib.mapAttrs (
+            field: v:
+            let
+              # Always present: `value` arrived already sealed by its provider,
+              # so its keys are exactly this shape's fields.
+              c = types.derivedFromName fields.${field};
+            in
+            if c != null && providesSig u c && collectsSig from c then
+              throw (
+                "floe link error: '${sig.name}.${field}' is derived from the '${c}' "
+                + "collection that '${from}' folds, and '${u}' contributes a '${c}' to "
+                + "it. Reading it here is a cycle: the fold needs '${u}'s contribution, "
+                + "and '${u}' would need the fold.\n\n"
+                + "This is the one read that cannot work. Every other field of "
+                + "'${sig.name}' is fine from '${u}' — it is the field, not the hole, "
+                + "that closes the loop."
+              )
+            else
+              v
+          ) value;
 
       # ---- Evaluation fixpoint ---------------------------------------------
 
       sealSig =
         path: sig: v:
-        types.checkValue path {
-          tag = "record";
-          fields = sig.fields;
-          name = "signature ${sig.name}";
-        } v;
-
-      sealedScope = lib.mapAttrs (
-        n: entry:
-        let
-          sealed = sealSig [ "scope" n ] entry.sig entry.value;
-        in
-        lib.mapAttrs (
-          field: value:
-          if types.isLocal entry.sig.fields.${field} then
-            throw (
-              "floe link error: '${entry.sig.name}.${field}' is local to the link that "
-              + "provided it${lib.optionalString (entry ? origin) " (${entry.origin})"}, and this "
-              + "is a different one. It names something that exists there — a Service "
-              + "address, a namespace, a CRD — and there is no value for it here.\n\n"
-              + "Fields of '${entry.sig.name}' that do travel: "
-              + (
-                let
-                  portable = lib.attrNames (lib.filterAttrs (_: t: !(types.isLocal t)) entry.sig.fields);
-                in
-                if portable == [ ] then "none." else lib.concatStringsSep ", " portable + "."
-              )
-            )
-          else
-            value
-        ) sealed
-      ) scope;
-
-      uncrossable = lib.filter (n: interfaces.isUncrossable scope.${n}.sig) scopeNames;
+        types.checkValue path sig.shape v;
 
       fixed = lib.fix (
         self:
@@ -273,16 +296,11 @@ in
           let
             inst = getInstance u;
 
-            valueOf =
-              p:
-              if isFromScope p then
-                sealedScope.${p.scope}
-              else
-                self.${p.instName}.sealedProvides.${p.provideName};
+            valueOf = p: self.${p.instName}.sealedProvides.${p.provideName};
 
-            resolved =
-              lib.mapAttrs (_hole: valueOf) wiringOne.${u}
-              // lib.mapAttrs (_hole: p: if p == null then null else valueOf p) wiringOptional.${u};
+            resolved = lib.mapAttrs (
+              hole: p: withheld u p.instName inst.def.requires.${hole} (valueOf p)
+            ) wiringOne.${u};
 
             # Keyed by the providing unit, so a consumer folding over them
             # can name one, and two providers cannot collide.
@@ -301,17 +319,15 @@ in
               provideName: sig:
               let
                 v =
-                  evaluated.config.floe.provides.${provideName} or (throw (
+                  evaluated.provides.${provideName} or (throw (
                     "floe '${u}': declares provide '${provideName}' (signature "
-                    + "'${sig.name}') but its body never defines "
-                    + "config.floe.provides.${provideName}"
+                    + "'${sig.name}') but its body never defines it"
                   ));
               in
               sealSig [ u "provides" provideName ] sig v
             ) inst.def.provides;
             outs = lib.mapAttrs (
-              kName: kind:
-              types.checkValue [ u "out" kName ] kind.schema (evaluated.config.floe.out.${kName} or { })
+              name: sig: types.checkValue [ u "out" name ] sig.shape (evaluated.out.${name} or { })
             ) inst.def.out;
           }
         )
@@ -321,7 +337,7 @@ in
 
       scanTokens =
         v:
-        if types.isDeferredToken v then
+        if types.isRuntimeToken v then
           [ v ]
         else if builtins.isAttrs v then
           lib.concatMap scanTokens (lib.attrValues v)
@@ -337,18 +353,7 @@ in
           to = p.instName;
           via = hole;
           kind = "eval";
-        }) (localOnly wiringOne.${u})
-        ++ lib.concatLists (
-          lib.mapAttrsToList (
-            hole: p:
-            lib.optional (p != null) {
-              from = u;
-              to = p.instName;
-              via = hole;
-              kind = "eval";
-            }
-          ) (localOnly wiringOptional.${u})
-        )
+        }) wiringOne.${u}
         ++ lib.concatLists (
           lib.mapAttrsToList (
             hole: ps:
@@ -382,7 +387,7 @@ in
       phaseOf =
         seen: u:
         if lib.elem u seen then
-          throw ("floe link error: deferred-value cycle: " + lib.concatStringsSep " -> " (seen ++ [ u ]))
+          throw ("floe link error: runtime-value cycle: " + lib.concatStringsSep " -> " (seen ++ [ u ]))
         else
           let
             deps = deployDepsOf u;
@@ -390,40 +395,39 @@ in
           if deps == [ ] then 0 else 1 + lib.foldl' lib.max 0 (map (phaseOf (seen ++ [ u ])) deps);
 
       # ---- Output collection -----------------------------------------------
-
-      allKindNames = lib.unique (
-        lib.concatMap (
-          u: map (k: (getInstance u).def.out.${k}.name) (lib.attrNames (getInstance u).def.out)
-        ) instNames
+      #
+      # Grouped by the emitted signature's `name`, which is what lets a consumer
+      # fold every floe's fragment without knowing which floes exist.
+      allOutNames = lib.unique (
+        lib.concatMap (u: map (sig: sig.name) (lib.attrValues (getInstance u).def.out)) instNames
       );
 
-      outByKind = lib.genAttrs allKindNames (
-        kindName:
-        lib.foldl' (
-          acc: u:
-          let
-            matching = lib.filterAttrs (_: kind: kind.name == kindName) (getInstance u).def.out;
-          in
-          if matching == { } then
-            acc
-          else
-            acc // { ${u} = fixed.${u}.outs.${lib.head (lib.attrNames matching)}; }
-        ) { } instNames
+      outBySigName = lib.genAttrs allOutNames (
+        sigName:
+        lib.listToAttrs (
+          lib.concatMap (
+            u:
+            let
+              matching = lib.filterAttrs (_: sig: sig.name == sigName) (getInstance u).def.out;
+            in
+            lib.optional (matching != { }) (
+              lib.nameValuePair u fixed.${u}.outs.${lib.head (lib.attrNames matching)}
+            )
+          ) instNames
+        )
       );
 
       # ---- Result and policies ---------------------------------------------
 
       result = {
         provides = lib.genAttrs instNames (u: fixed.${u}.sealedProvides);
-        out = outByKind;
+        out = outBySigName;
 
         # providersOf :: SignatureName -> [{ instName; provideName; value; }]
-        # Who in this link answers a signature. Its own units only: a provide
-        # from the enclosing scope belongs to the link that made it.
         providersOf =
           sigName:
           map (p: p // { value = fixed.${p.instName}.sealedProvides.${p.provideName}; }) (
-            localProvidersOf sigName
+            providersOf sigName
           );
 
         inputs = lib.genAttrs instNames (u: interfaces.renderInputs (getInstance u).def.inputs);
@@ -435,31 +439,19 @@ in
         phases = lib.genAttrs instNames (phaseOf [ ]);
 
         wiring = {
-          one = lib.mapAttrs (_u: localOnly) wiringOne;
-          optional = lib.mapAttrs (_u: localOnly) wiringOptional;
-
-          scope = lib.mapAttrs (u: _: (fromScopeOnly wiringOne.${u}) // (fromScopeOnly wiringOptional.${u})) (
-            lib.genAttrs instNames getInstance
-          );
+          one = wiringOne;
+          all = wiringAll;
         };
       };
 
       violations = lib.concatMap (p: p result) policies;
     in
-    if uncrossable != [ ] then
+    if nameCollisions != [ ] then
       throw (
-        "floe link error: these provides were offered to this link by its enclosing "
-        + "scope, and every field of their signatures is link-local:\n  - "
-        + lib.concatMapStringsSep "\n  - " (
-          n:
-          "'${n}' (signature '${scope.${n}.sig.name}'"
-          + lib.optionalString (scope.${n} ? origin) ", from ${scope.${n}.origin}"
-          + ")"
-        ) uncrossable
-        + "\n\nNothing in them would be readable here, so resolving a hole against one "
-        + "leaves the consumer with a value it cannot use. These are the promises that "
-        + "something is running *in a particular place* — a controller, a webhook, a "
-        + "storage class — and the place is not this one."
+        "floe link error: a hole or provide name means more than one signature.\n  - "
+        + lib.concatStringsSep "\n  - " nameCollisions
+        + "\n\nA reader seeing `requires.<name>` should be able to tell what it is "
+        + "without looking it up. Rename one to its signature's `canonicalName`."
       )
     else if singletonBreaches != [ ] then
       throw (
@@ -475,8 +467,7 @@ in
       throw (
         "floe link error: a unit does not satisfy its own hole.\n  - "
         + lib.concatStringsSep "\n  - " selfResolutions
-        + "\n\nRead `config.floe.provides.<instance>` directly; it is in scope "
-        + "and needs no link."
+        + "\n\nRead the provide directly; it is in scope and needs no link."
       )
     else if violations != [ ] then
       throw ("floe policy violation(s):\n  - " + lib.concatStringsSep "\n  - " violations)

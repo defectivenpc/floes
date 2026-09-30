@@ -5,18 +5,24 @@
   # A signature: a named record schema over data.
   # fields :: attrset of floe types (see types.nix).
   #
+  # A signature: a named schema for a value a floe commits to — one that crosses
+  # to a peer (`requires`, `collects`, `provides`) or one it emits (`out`). There
+  # used to be a second constructor, `mkOutputKind`, for the second case; it was
+  # the same record with a different word on it.
   mkSig =
     {
       name,
-      as ? null,
+      canonicalName ? null,
       description ? null,
-      fields,
+      shape,
     }:
-    if as == null then
+    if canonicalName == null then
       throw (
-        "signature '${name}': needs `as`, the canonical name a hole or promise binds it under. "
-        + "Without one, `provides.operator` can mean four different signatures and a reader "
-        + "cannot tell which — which is what it meant before this was required."
+        "signature '${name}': needs `canonicalName`, the name a hole or provide of "
+        + "it should be called by. Without one, `provides.operator` can mean four "
+        + "different signatures and a reader cannot tell which — which is what it "
+        + "meant before this was required. `link` checks that no single name is "
+        + "used for two signatures."
       )
     else if description == null then
       throw (
@@ -28,13 +34,11 @@
         __floeSig = true;
         inherit
           name
-          as
+          canonicalName
           description
-          fields
+          shape
           ;
       };
-
-  isUncrossable = sig: lib.all (t: types.isLocal t) (lib.attrValues sig.fields);
 
   renderInputs = lib.mapAttrs (
     _: opt: {
@@ -52,19 +56,4 @@
     }
   );
 
-  # An output kind: a registered dotted name plus a schema for one class of
-  # build product. Kinds are defined by distributions, not floe core.
-  mkOutputKind =
-    {
-      name,
-      description ? null,
-      schema,
-    }:
-    if description == null then
-      throw "output kind '${name}': needs a one-line `description` saying what it carries."
-    else
-      {
-        __floeKind = true;
-        inherit name description schema;
-      };
 }
