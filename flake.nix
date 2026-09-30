@@ -42,6 +42,32 @@
         treefmtEval = treefmt-nix.lib.evalModule pkgs (import ./nix/treefmt.nix);
 
         results = import ./tests { inherit lib; };
+
+        examples = import ./examples {
+          inherit lib;
+          floe = self.lib;
+        };
+
+        # The NixOS example's fragments, handed to NixOS. Forcing the toplevel
+        # derivation's path evaluates the whole configuration, which is what
+        # proves the fragments are valid config and not merely well-typed data
+        # — a snapshot cannot tell a real option path from a plausible one.
+        #
+        # The context is discarded deliberately: this check should evaluate a
+        # NixOS system, not build one.
+        exampleSystem = nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          modules = examples.nixos.nixosModules ++ [
+            {
+              boot.loader.grub.devices = [ "/dev/sda" ];
+              fileSystems."/" = {
+                device = "/dev/sda1";
+                fsType = "ext4";
+              };
+              system.stateVersion = "24.05";
+            }
+          ];
+        };
       in
       {
         formatter = treefmtEval.config.build.wrapper;
@@ -58,6 +84,10 @@
               cat $out >&2
               exit 1
             fi
+          '';
+
+          examples-nixos-system = pkgs.runCommand "floe-examples-nixos-system" { } ''
+            echo ${builtins.unsafeDiscardStringContext exampleSystem.config.system.build.toplevel.drvPath} > $out
           '';
         };
 

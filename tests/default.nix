@@ -1,5 +1,9 @@
 # Pins the linker against the worked example in `support`: hole resolution,
 # the three arities, sealing, and the two edge kinds.
+#
+# `examples.nix` is the other half, against the two distributions in
+# `../examples`. Both return `lib.runTests` failure lists, concatenated at the
+# bottom of this file.
 { lib }:
 
 let
@@ -202,7 +206,8 @@ let
   edge = e: "${e.kind}:${e.from}->${e.to} via ${e.via}";
   edges = lib.sort (a: b: a < b) (map edge deployment.graph.edges);
 in
-lib.runTests {
+(import ./examples.nix { inherit lib floe; })
+++ lib.runTests {
 
   # The two halves of the type boundary, each of which fails deep inside
   # nixpkgs when the wrong kind of type reaches it.
