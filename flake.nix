@@ -55,19 +55,21 @@
         #
         # The context is discarded deliberately: this check should evaluate a
         # NixOS system, not build one.
-        exampleSystem = nixpkgs.lib.nixosSystem {
-          system = "x86_64-linux";
-          modules = examples.nixos.nixosModules ++ [
-            {
-              boot.loader.grub.devices = [ "/dev/sda" ];
-              fileSystems."/" = {
-                device = "/dev/sda1";
-                fsType = "ext4";
-              };
-              system.stateVersion = "24.05";
-            }
-          ];
-        };
+        exampleSystem =
+          mods:
+          nixpkgs.lib.nixosSystem {
+            system = "x86_64-linux";
+            modules = mods ++ [
+              {
+                boot.loader.grub.devices = [ "/dev/sda" ];
+                fileSystems."/" = {
+                  device = "/dev/sda1";
+                  fsType = "ext4";
+                };
+                system.stateVersion = "24.05";
+              }
+            ];
+          };
       in
       {
         formatter = treefmtEval.config.build.wrapper;
@@ -86,8 +88,15 @@
             fi
           '';
 
+          # Both links, evaluated as real NixOS systems. The small one is the
+          # readable example; the fleet is twenty-nine floes, and the only thing
+          # that proves the whole set merges rather than just type-checks.
           examples-nixos-system = pkgs.runCommand "floe-examples-nixos-system" { } ''
-            echo ${builtins.unsafeDiscardStringContext exampleSystem.config.system.build.toplevel.drvPath} > $out
+            echo ${builtins.unsafeDiscardStringContext (exampleSystem examples.nixos.nixosModules).config.system.build.toplevel.drvPath} > $out
+          '';
+
+          examples-nixos-fleet = pkgs.runCommand "floe-examples-nixos-fleet" { } ''
+            echo ${builtins.unsafeDiscardStringContext (exampleSystem examples.nixos.fleetNixosModules).config.system.build.toplevel.drvPath} > $out
           '';
         };
 

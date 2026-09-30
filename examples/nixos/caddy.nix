@@ -22,6 +22,9 @@ floe.mkFloe {
   name = "caddy";
   summary = "Fixture: a second reverse proxy, to make a hole ambiguous.";
 
+  # Writes fixed paths, so two of it would silently merge into one.
+  singleton = true;
+
   requires.network = sigs.NETWORK;
   provides.proxy = sigs.REVERSE_PROXY;
 

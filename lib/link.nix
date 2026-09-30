@@ -115,6 +115,23 @@ in
         holesOf "requires" inst.def.requires ++ holesOf "optionally requires" inst.def.requiresOptional
       ) instNames;
 
+      # Two instances of a floe that declared itself a singleton. Its body writes
+      # fixed paths rather than keying them by `config.floe.name`, so both
+      # instances emit the same output — and identical values merge without
+      # complaint wherever that output lands. The deployer gets one of the thing
+      # and believes they have two, with no error anywhere downstream, which is
+      # why this one has to be caught here.
+      singletonBreaches =
+        let
+          declared = lib.filter (u: (getInstance u).def.singleton) instNames;
+          byFloe = lib.groupBy (u: (getInstance u).def.name) declared;
+        in
+        lib.mapAttrsToList (
+          floeName: us:
+          "floe '${floeName}' is a singleton, instantiated ${toString (lib.length us)} times: "
+          + lib.concatMapStringsSep ", " (u: "'${u}'") us
+        ) (lib.filterAttrs (_: us: lib.length us > 1) byFloe);
+
       # A binding says which provider a hole means, spelled `<unit>` or
       # `<unit>/<provide>` as `offers` is. It narrows the candidates; the
       # arity rules below then apply to what is left.
@@ -443,6 +460,16 @@ in
         + "leaves the consumer with a value it cannot use. These are the promises that "
         + "something is running *in a particular place* — a controller, a webhook, a "
         + "storage class — and the place is not this one."
+      )
+    else if singletonBreaches != [ ] then
+      throw (
+        "floe link error: a singleton floe is instantiated more than once.\n  - "
+        + lib.concatStringsSep "\n  - " singletonBreaches
+        + "\n\nIts body writes fixed paths instead of keying them by "
+        + "`config.floe.name`, so every instance emits the same output. Identical "
+        + "values merge without complaint, which would leave you with one of it "
+        + "and no error saying so.\n\nEither instantiate it once, or make the "
+        + "floe key its output by `config.floe.name` and drop `singleton`."
       )
     else if selfResolutions != [ ] then
       throw (

@@ -40,6 +40,21 @@ rec {
       provides ? { },
       out ? { },
       modules ? [ ],
+
+      # singleton :: bool
+      #
+      # Whether two instances of this floe in one link is an error.
+      #
+      # It is the author's to declare, because only the author knows whether the
+      # body keys its output by `config.floe.name`. A floe that writes fixed
+      # paths — `services.nginx`, `networking.firewall` — cannot be instantiated
+      # twice: both instances emit the same paths, and *identical* values merge
+      # without complaint, so the deployer gets one of the thing and believes
+      # they have two. Nothing downstream can catch that; the values agree.
+      #
+      # Conflicting values are caught, by whatever consumes the output. This is
+      # for the case where they agree.
+      singleton ? false,
     }:
     let
       _ =
@@ -109,6 +124,7 @@ rec {
             provides
             out
             modules
+            singleton
             ;
 
           # instantiate :: attrset -> instance

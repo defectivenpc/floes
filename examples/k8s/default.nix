@@ -1,24 +1,4 @@
-# A Kubernetes distribution, in one file, on purpose.
-#
-# This example exists for the contrast with `examples/nixos`. Same library,
-# same four mechanisms, and a completely different shape:
-#
-#                      nixos                     k8s
-#   unit               a systemd service         a Helm chart
-#   floes              5                         3
-#   signatures         5                         2
-#   collected          2 (PORT_CLAIM, ROUTE)     0
-#   eval cycles        2, both mutual            0, a chain
-#   output typing      narrow, per floe          loose, shared
-#
-# The last two rows are the interesting ones. Kubernetes components have clean
-# boundaries and coarse grain, so nothing needs a collection and nothing points
-# backwards — resolution is a chain and the graph is a tree. And a rendered
-# manifest is opaque by nature, so there is no useful `T.record` to write for
-# it; floe does not insist on one.
-#
-# Floe was designed against this shape. `examples/nixos` is the harder case,
-# and the reason the library needed testing against a second domain at all.
+# A Kubernetes distribution.
 { lib, floe }:
 
 let
@@ -44,16 +24,14 @@ let
       description = "Something that can sign certificates in this cluster.";
       fields = {
         name = T.str;
-        # Not known until cert-manager has generated its CA. A floe that
-        # renders it into a manifest gets a deploy edge and a later phase, not
-        # an eval error — a manifest is data that ships after apply.
+        # Not known until cert-manager has generated its CA.
         caFingerprint = T.deferred T.str;
       };
     };
   };
 
   # One loose kind, shared. See the header: a manifest has no shape worth
-  # declaring, and `examples/nixos/kinds.nix` is where the narrow case lives.
+  # declaring
   manifests = floe.mkOutputKind {
     name = "k8s.manifests";
     description = "Rendered Kubernetes resources, keyed by name.";

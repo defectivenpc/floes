@@ -8,7 +8,7 @@
 #              exactly one answer in the link
 #
 # Additive concerns are collected; concerns with one answer are plain holes.
-# Neither is a new mechanism — a collected signature is just a signature some
+# Neither is a new mechanism a collected signature is just a signature some
 # floe names in `collects` rather than in `requires`.
 { floe }:
 
@@ -25,6 +25,16 @@ in
     };
     # No `service` field: a collection is keyed by the unit that provided it,
     # so the owner already knows who claimed what and its errors can say so.
+  };
+
+  SCRAPE_TARGET = floe.mkSig {
+    name = "SCRAPE_TARGET";
+    as = "scrape";
+    description = "A metrics endpoint a workload wants collected.";
+    fields = {
+      port = T.port;
+      path = T.str;
+    };
   };
 
   ROUTE_CLAIM = floe.mkSig {
@@ -53,7 +63,7 @@ in
       # PORT_CLAIM, so a contributor that reads it closes the loop. Same hole,
       # same consumer — the field decides whether it recurses, which is why a
       # future safety annotation would have to be per field and not per hole.
-      # `tests/support/failures.nix` pins what Nix says today.
+      # `broken.nix` has the case and `../refuse.sh` pins what Nix says today.
       openPorts = T.listOf T.port;
     };
   };
@@ -79,7 +89,9 @@ in
     # Deliberately absent: `dataDir`. Postgres knows it, and in stock NixOS
     # anything that wants it reads `config.services.postgresql.dataDir`.
     # Sealing makes that impossible, so wanting it becomes a request to widen
-    # the signature — a conversation, instead of a coupling nobody declared.
+    # the signature a conversation, instead of a coupling nobody declared.
+    # In this way we can guard and direct API design of floes so external parties
+    # can depend on it, or participate in designing it through a conversation.
   };
 
   REVERSE_PROXY = floe.mkSig {

@@ -44,22 +44,30 @@ if [ "${1:-}" = "nixos" ]; then
   exit 0
 fi
 
-printf 'chain\tinputs\tn\tcpu_s\tgc_mb\tcpu_per_floe_ms\n'
-for chain in true false; do
-  for inputs in true false; do
-    for n in 0 1 10 100 400 1000; do
-      read -r cpu gc < <(eval_stats \
-        "import ./bench/link-scale.nix { n = $n; withInputs = $inputs; chain = $chain; }")
-      # n=0 is the fixed cost of importing lib and the floe library; subtract it
-      # so the per-floe figure is the marginal cost of one more floe.
-      if [ "$n" = 0 ]; then base=$cpu; fi
-      per=$(awk -v c="$cpu" -v b="$base" -v n="$n" \
-        'BEGIN { if (n == 0) print "-"; else printf "%.2f", (c - b) * 1000 / n }')
-      printf '%s\t%s\t%s\t%.3f\t%.0f\t%s\n' "$chain" "$inputs" "$n" "$cpu" "$gc" "$per"
-    done
+printf 'weight\tn\tcpu_s\tgc_mb\tcpu_per_floe_ms\n'
+for weight in 1 15; do
+  for n in 0 1 10 100 400 1000; do
+    read -r cpu gc < <(eval_stats \
+      "import ./bench/link-scale.nix { n = $n; weight = $weight; }")
+    # n=0 is the fixed cost of importing lib and the floe library; subtract it so
+    # the per-floe figure is the marginal cost of one more floe.
+    if [ "$n" = 0 ]; then base=$cpu; fi
+    per=$(awk -v c="$cpu" -v b="$base" -v n="$n" \
+      'BEGIN { if (n == 0) print "-"; else printf "%.2f", (c - b) * 1000 / n }')
+    printf '%s\t%s\t%.3f\t%.0f\t%s\n' "$weight" "$n" "$cpu" "$gc" "$per"
   done
 done
 
+# The two confounds, held at realistic weight. `chain` decides how many holes
+# the linker resolves; `fold` decides whether values flowing through them grow.
+printf '\nchain/fold at weight 15, n=400\n'
+for chain in true false; do
+  for fold in true false; do
+    read -r cpu gc < <(eval_stats \
+      "import ./bench/link-scale.nix { n = 400; weight = 15; chain = $chain; fold = $fold; }")
+    printf '  chain=%-5s fold=%-5s cpu %.3fs  gc %.0f MB\n' "$chain" "$fold" "$cpu" "$gc"
+  done
+done
 echo
 read -r cpu gc < <(nixos_baseline)
 printf 'stock NixOS (minimal host): cpu %.2fs, allocated %.0f MB\n' "$cpu" "$gc"

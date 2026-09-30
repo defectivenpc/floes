@@ -25,6 +25,13 @@
   # flowing through them grow. Splitting them separates a cost in the linker
   # from a cost in the benchmark's own string building.
   fold ? true,
+
+  # How heavy each floe's body is. `weight = 1` is the floor: one input, one
+  # string. The example floes in `examples/nixos` sit around `weight = 15` —
+  # several inputs, a nested `T.record` output schema, a systemd-unit-shaped
+  # fragment. Anything extrapolated from `weight = 1` understates a real floe,
+  # which is the flaw this parameter exists to fix.
+  weight ? 1,
 }:
 
 let
@@ -42,10 +49,24 @@ let
       fields.v = T.str;
     };
 
+  # A narrow, nested output schema rather than `attrsOf any`: checking a real
+  # `T.record` tree is work a real floe pays for, and `attrsOf any` skips it.
+  fieldNames = lib.genList (k: "f${toString k}") weight;
+
   kind = floe.mkOutputKind {
     name = "bench.out";
     description = "Benchmark output kind.";
-    schema = T.attrsOf T.any;
+    schema = T.record (
+      lib.genAttrs fieldNames (
+        _:
+        T.record {
+          name = T.str;
+          port = T.port;
+          enable = T.bool;
+          tags = T.listOf T.str;
+        }
+      )
+    );
   };
 
   mkUnit =
@@ -54,13 +75,16 @@ let
       name = "bench-${toString i}";
       summary = "Benchmark floe at chain position ${toString i}.";
 
-      inputs = lib.optionalAttrs withInputs {
-        label = lib.mkOption {
-          type = lib.types.str;
-          default = "u${toString i}";
-          description = "Nothing reads this; it exists to make the floe pay for inputs.";
-        };
-      };
+      inputs = lib.optionalAttrs withInputs (
+        lib.genAttrs fieldNames (
+          n:
+          lib.mkOption {
+            type = lib.types.str;
+            default = "u${toString i}-${n}";
+            description = "Exists so the floe pays for declaring and checking an input.";
+          }
+        )
+      );
 
       requires = lib.optionalAttrs (chain && i > 0) { link = sigOf (i - 1); };
       provides.link = sigOf i;
@@ -73,7 +97,7 @@ let
             # Reading `inputs` is what forces `checkInputs`, and so what makes
             # the second `evalModules` per floe actually get paid for. A body
             # that never reads an input never pays for one.
-            self = if withInputs then config.floe.inputs.label else toString i;
+            self = if withInputs then config.floe.inputs.${lib.head fieldNames} else toString i;
             v =
               if !chain || i == 0 then
                 self
@@ -86,10 +110,15 @@ let
           in
           {
             config.floe.provides.link = { inherit v; };
-            config.floe.out.bench.node = {
-              inherit v;
-              inherit (config.floe) name;
-            };
+            config.floe.out.bench = lib.genAttrs fieldNames (n: {
+              name = "${v}-${n}";
+              port = 1024 + i;
+              enable = true;
+              tags = [
+                n
+                "bench"
+              ];
+            });
           }
         )
       ];

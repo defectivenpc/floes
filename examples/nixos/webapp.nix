@@ -19,9 +19,13 @@ floe.mkFloe {
 
   inputs = {
     subdomain = lib.mkOption {
-      type = lib.types.str;
-      default = "app";
-      description = "Hostname to claim, under the proxy's base domain.";
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = ''
+        Hostname to claim, under the proxy's base domain. Null means use the
+        link's name for this instance, which is unique by construction — so
+        twenty workloads need twenty names and the deployer writes none of them.
+      '';
     };
     port = lib.mkOption {
       type = lib.types.port;
@@ -35,7 +39,10 @@ floe.mkFloe {
     proxy = sigs.REVERSE_PROXY;
   };
 
-  provides.route = sigs.ROUTE_CLAIM;
+  provides = {
+    route = sigs.ROUTE_CLAIM;
+    scrape = sigs.SCRAPE_TARGET;
+  };
 
   out.nixos = kinds.nixosConfig (
     T.record {
@@ -59,17 +66,25 @@ floe.mkFloe {
       let
         db = config.floe.requires.database;
         proxy = config.floe.requires.proxy;
-        inherit (config.floe.inputs) subdomain port;
+        inherit (config.floe.inputs) port;
 
+        # Keyed by the link's name for this instance, so twenty of these coexist
+        # instead of twenty definitions of one unit.
+        inst = config.floe.name;
+        subdomain = if config.floe.inputs.subdomain == null then inst else config.floe.inputs.subdomain;
         host = "${subdomain}.${proxy.baseDomain}";
       in
       {
         config.floe.provides.route = { inherit subdomain port; };
+        config.floe.provides.scrape = {
+          inherit port;
+          path = "/metrics";
+        };
 
-        config.floe.out.nixos.systemd.services.webapp = {
-          description = "Example workload.";
+        config.floe.out.nixos.systemd.services.${inst} = {
+          description = "Workload ${inst} at ${host}";
           wantedBy = [ "multi-user.target" ];
-          after = [ "postgresql.service" ];
+          after = [ "network.target" ];
 
           environment = {
             # `db.password` would be an eval error here: it is deferred, and a

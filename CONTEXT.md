@@ -28,6 +28,11 @@ _definition_ a unit; here it is the instance. The divergence is deliberate
 and load-bearing, because a floe can be instantiated more than once in one
 link.
 
+**Singleton floe**: A floe whose body writes fixed output paths rather than
+keying them by the link's name for the instance, so two instances of it
+would emit the same paths and merge silently. Declared by the author;
+refused by the linker. _Avoid_: unique floe, single-instance.
+
 **Body**: The list of NixOS modules a floe is implemented by. It reads
 `config.floe.*` and nothing else — there is no ambient option tree and no
 enclosing `config`.

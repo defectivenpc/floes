@@ -2,13 +2,13 @@
 #
 # This floe is the point of the example. In stock NixOS any module may write
 # `networking.firewall.allowedTCPPorts`; the merge is a list union nobody
-# chose, and two services claiming one port is not an event — the lists
-# concatenate and whichever unit binds first wins at runtime.
+# chose, and two services claiming one port concatenate and whichever unit
+# binds first wins at runtime.
 #
 # Here the namespace has an owner. Services do not write it. They provide a
 # PORT_CLAIM, this floe collects every one of them, and it is the only thing in
 # the link that emits `networking`. The merge policy is therefore *this file's*
-# decision, and it can be stricter than a union.
+# decision, and it can be stricter or more intelligent than a union.
 {
   lib,
   floe,
@@ -21,7 +21,10 @@ let
 in
 floe.mkFloe {
   name = "networking";
-  summary = "Owns networking.*: identity, and the ports its peers claim.";
+  summary = "A linux machine's networking.*: identity, and the ports its peers claim.";
+
+  # Writes fixed paths, so two of it would silently merge into one.
+  singleton = true;
 
   inputs = {
     hostName = lib.mkOption {

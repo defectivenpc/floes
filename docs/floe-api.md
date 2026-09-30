@@ -20,7 +20,8 @@ Kubernetes.
 
 ```nix
 mkFloe { name, summary, inputs ? {}, requires ? {}, requiresOptional ? {},
-         collects ? {}, provides ? {}, out ? {}, modules ? [] }
+         collects ? {}, provides ? {}, out ? {}, modules ? [],
+         singleton ? false }
 ```
 
 | Argument           | Required | Type                    | Meaning                                               |
@@ -34,6 +35,7 @@ mkFloe { name, summary, inputs ? {}, requires ? {}, requiresOptional ? {},
 | `provides`         | no       | attrset of signatures   | what it offers back                                   |
 | `out`              | no       | attrset of output kinds | what it emits                                         |
 | `modules`          | no       | list of modules         | the body                                              |
+| `singleton`        | no       | bool                    | whether two instances in one link is an error         |
 
 The pattern is **closed**: an unknown key is an error. `summary` is
 defaulted to `null` in the pattern and refused explicitly rather than left
@@ -49,6 +51,27 @@ A collection carries one eval edge per contributor, which answers the first.
 The second still holds, so where a runtime aggregator exists a floe ships a
 constructor and the consumer emits the resource into its own bundle. No floe
 in this distribution collects.
+
+### `singleton`
+
+A floe whose body writes fixed paths — `services.nginx`,
+`networking.firewall` — cannot be instantiated twice. Both instances emit
+the same paths, and _identical_ values merge without complaint wherever that
+output lands, so the deployer gets one of the thing and believes they have
+two. Nothing downstream can catch it; the values agree. `singleton = true`
+makes the linker refuse the second instance, naming both.
+
+It is the author's to declare, because only the author knows whether the
+body keys its output by `config.floe.name`. A floe that does key by it — see
+`examples/nixos/postgres.nix`, which emits
+`systemd.services.postgres-<unit>` — leaves `singleton` alone and can be
+instantiated freely. That is the one thing floe gives NixOS that its own
+module system cannot express at all, so the declaration is worth reading as
+"this floe gave that up, deliberately".
+
+Conflicting values are caught by whatever consumes the output; a NixOS
+adapter gets the module system's own conflict error. This is only for the
+case where they agree.
 
 ### Saying which provider
 
