@@ -49,21 +49,31 @@ in
 
       # ---- Resolution (headers only; no body evaluation) -------------------
 
-      localProvidersOf =
-        sigName:
+      # Every provide in the link, grouped by the signature name it answers.
+      #
+      # Built once, because the arity rules ask "who provides this?" once per
+      # hole and the obvious implementation — scan every unit's provides, per
+      # hole — is O(units x holes). Two of them, in fact: `wiringOne` and
+      # `selfResolutions` each did their own pass. At a thousand of each that
+      # was 1.1s and 586MB of the 1.3s a link took, against 0.17s and 129MB
+      # for this. `bench/run.sh` is the measurement.
+      providerIndex = lib.groupBy (p: p.sigName) (
         lib.concatMap (
           u:
           let
             provs = (getInstance u).def.provides;
           in
-          lib.concatMap (
-            provideName:
-            lib.optional (provs.${provideName}.name == sigName) {
-              instName = u;
-              inherit provideName;
-            }
-          ) (lib.attrNames provs)
-        ) instNames;
+          map (provideName: {
+            sigName = provs.${provideName}.name;
+            instName = u;
+            inherit provideName;
+          }) (lib.attrNames provs)
+        ) instNames
+      );
+
+      # `sigName` is the index's key and not part of a provider reference —
+      # these records reach `result.wiring`, where an extra field would show.
+      localProvidersOf = sigName: map (p: removeAttrs p [ "sigName" ]) (providerIndex.${sigName} or [ ]);
 
       scopeProvidersOf =
         sigName: lib.concatMap (n: lib.optional (scope.${n}.sig.name == sigName) { scope = n; }) scopeNames;
