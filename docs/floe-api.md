@@ -197,7 +197,7 @@ by a floe data schema, `T`. That is the whole rule, and both halves are
 enforced where they are used: `mkFloe` refuses a `T` in `inputs`, and
 `checkValue` refuses a `lib.types` in anything a signature describes.
 
-`lib.types` cannot do the signature side, for three reasons:
+`lib.types` cannot do the signature side, for two reasons:
 
 - **A field can carry facts the linker reads.** `T.runtime` says a value
   does not exist until after apply, and `T.derivedFrom` says a field was
@@ -208,6 +208,14 @@ enforced where they are used: `mkFloe` refuses a `T` in `inputs`, and
   `lib.types.submodule` refuses the whole value instead.
 - **A NixOS type holds functions.** `merge`, `check`, `substSubModules` — so
   it cannot be serialized, and a schema here has to be inert data.
+
+**`T` is not the faster one.** Worth knowing, because the split above might
+suggest otherwise: `T.checkValue` costs about _twice_ what `lib.types.check`
+does for a scalar, since it chains `if ty.tag == …` comparisons where a
+NixOS type dispatches straight to its predicate. It does not matter — a
+signature is checked once per provide per link, not once per value per
+instance, and a twenty-nine-floe link is 37 ms — but `T` exists for what it
+can express, not for speed. `docs/adr/0004` has the measurements.
 
 | Constructor                                   | Is                                                                      |
 | --------------------------------------------- | ----------------------------------------------------------------------- |

@@ -444,6 +444,130 @@ in
     expected = true;
   };
 
+  # ---- what `checkInputs` borrows from the module system --------------------
+  #
+  # `lib.modules.mergeDefinitions` is nixpkgs' per-option machinery, and it is
+  # exported under a blanket note that not everything in that list is a public
+  # interface. These three pin the behaviours `checkInputs` relies on, so a
+  # nixpkgs bump that moves them fails here rather than in someone's deploy.
+  #
+  # Written against `mkFloe` rather than against `mergeDefinitions` directly:
+  # what matters is that a floe's inputs still behave, not how.
+
+  # The one that cannot be hand-rolled. A submodule's defaults live inside its
+  # own option declarations, and only the module system reaches them.
+  testASubmoduleInputGetsItsNestedDefaults = {
+    expr =
+      (
+        (floe.mkFloe {
+          name = "sub-inputs";
+          summary = "Fixture: an input whose type is a submodule.";
+          inputs.tls = lib.mkOption {
+            type = lib.types.submodule {
+              options = {
+                enable = lib.mkOption {
+                  type = lib.types.bool;
+                  default = false;
+                };
+                cert = lib.mkOption {
+                  type = lib.types.str;
+                  default = "/etc/cert.pem";
+                };
+              };
+            };
+            default = { };
+          };
+          body = { ... }: { };
+        }).instantiate
+          { tls.enable = true; }
+      ).inputsChecked.tls;
+    expected = {
+      enable = true;
+      cert = "/etc/cert.pem";
+    };
+  };
+
+  # Property wrappers in an instantiate call. Nothing in this repo writes one,
+  # but the module system handles them and so does floe, for free.
+  testPropertyWrappersInASuppliedInputAreHandled = {
+    expr =
+      let
+        f = floe.mkFloe {
+          name = "wrapped";
+          summary = "Fixture: a plain scalar input.";
+          inputs.port = lib.mkOption {
+            type = lib.types.port;
+            default = 5432;
+          };
+          body = { ... }: { };
+        };
+      in
+      {
+        mkIf = (f.instantiate { port = lib.mkIf true 5433; }).inputsChecked.port;
+        mkForce = (f.instantiate { port = lib.mkForce 5434; }).inputsChecked.port;
+      };
+    expected = {
+      mkIf = 5433;
+      mkForce = 5434;
+    };
+  };
+
+  # And it still refuses. Lazily, per input, the way NixOS does — which is why
+  # this forces the value rather than just instantiating.
+  testABadlyTypedInputIsRefusedWhenRead = {
+    expr =
+      let
+        inst =
+          (floe.mkFloe {
+            name = "badly-typed";
+            summary = "Fixture: a port input given a non-port.";
+            inputs.port = lib.mkOption {
+              type = lib.types.port;
+              default = 5432;
+            };
+            body = { ... }: { };
+          }).instantiate
+            { port = 99999; };
+      in
+      fails inst.inputsChecked.port;
+    expected = true;
+  };
+
+  # The shape of the call is checked eagerly, because a typo or a forgotten
+  # required input is wrong whether or not anything reads it.
+  testTheShapeOfAnInstantiateCallIsCheckedEagerly = {
+    expr =
+      let
+        f = floe.mkFloe {
+          name = "shapely";
+          summary = "Fixture: one defaulted input and one required.";
+          inputs = {
+            port = lib.mkOption {
+              type = lib.types.port;
+              default = 5432;
+            };
+            required = lib.mkOption { type = lib.types.str; };
+          };
+          body = { ... }: { };
+        };
+      in
+      {
+        undeclaredKey =
+          fails
+            (f.instantiate {
+              required = "x";
+              bogus = 1;
+            }).inputsChecked;
+        missingRequired = fails (f.instantiate { }).inputsChecked;
+        bothGiven = (f.instantiate { required = "x"; }).inputsChecked.required;
+      };
+    expected = {
+      undeclaredKey = true;
+      missingRequired = true;
+      bothGiven = "x";
+    };
+  };
+
   # Nix cannot read comments, so without this a floe's header prose reaches no
   # tool and the only machine-readable thing about it is its name.
   testAFloeMustSayWhatItInstalls = {

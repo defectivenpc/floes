@@ -89,8 +89,6 @@ rec {
         else
           null;
 
-      hasInputs = inputs != { };
-
       # An input is what a deployer writes, so it takes a NixOS option type.
       # A floe data schema fails deep inside nixpkgs, naming neither the floe
       # nor the input.
@@ -109,29 +107,70 @@ rec {
             + "`T` is for values that cross a floe boundary."
           );
 
+      # checkInputs: validate and default-fill what a deployer passed.
+      #
+      # `lib.modules.mergeDefinitions` is the NixOS module system's own
+      # per-option machinery — the same code that checks `services.nginx.enable`,
+      # asked about one option rather than a whole tree. It handles `mkIf`,
+      # `mkMerge`, `mkOverride` and `mkOrder`, and delegates to `type.merge`,
+      # which is what fills a submodule's nested defaults.
+      #
+      # This used to be a whole `lib.evalModules` per floe, which is the
+      # whole-tree entry point and the only reason a submodule's defaults were
+      # reachable. Per option instead costs 6MB against 107MB for a thousand
+      # floes of fifteen inputs, with the same semantics. `bench/run.sh`.
+      #
+      # `mergeDefinitions` is exported from `lib.modules` under a blanket note
+      # that not everything in that list is a public interface. The risk is
+      # accepted, because the alternative is maintaining a worse copy of it —
+      # and `tests/default.nix` pins the three behaviours we rely on, so a
+      # nixpkgs bump that moves them fails the suite rather than a deploy.
       checkInputs =
         supplied:
-        if !hasInputs then
-          (
-            if supplied == { } then
-              supplied
-            else
-              throw (
-                "floe '${name}': takes no inputs, but got: " + lib.concatStringsSep ", " (lib.attrNames supplied)
-              )
+        let
+          declared = lib.attrNames inputs;
+          suppliedNames = lib.attrNames supplied;
+
+          # Eager: the *shape* of the call. A typo'd key or a forgotten required
+          # input is wrong whether or not anything reads it, and neither check
+          # forces a value.
+          undeclared = lib.subtractLists declared suppliedNames;
+          unsupplied = lib.filter (n: !(supplied ? ${n}) && !(inputs.${n} ? default)) declared;
+
+          # Lazy: the values. NixOS is lazy here too — a badly-typed option that
+          # nothing reads does not fail a real system evaluation — and a floe
+          # author's mental model should be the one they already have.
+          valueOf =
+            n:
+            let
+              opt = inputs.${n};
+              merged =
+                (lib.modules.mergeDefinitions [ "floe" name "inputs" n ] opt.type [
+                  {
+                    file = "the arguments to floe '${name}'";
+                    value = if supplied ? ${n} then supplied.${n} else opt.default;
+                  }
+                ]).mergedValue;
+            in
+            # `mergeDefinitions` does not run `apply`; that is `evalOptionValue`'s
+            # job, and this is a level below it.
+            if opt ? apply then opt.apply merged else merged;
+        in
+        if undeclared != [ ] then
+          throw (
+            "floe '${name}': got input(s) it does not declare: "
+            + lib.concatStringsSep ", " undeclared
+            + ". It declares: "
+            + (if declared == [ ] then "none." else lib.concatStringsSep ", " declared + ".")
+          )
+        else if unsupplied != [ ] then
+          throw (
+            "floe '${name}': input(s) with no default were not supplied: "
+            + lib.concatStringsSep ", " unsupplied
+            + ". Pass them to `.instantiate { … }`."
           )
         else
-          let
-            ev = lib.evalModules {
-              modules = [
-                { options.floe.inputs = inputs; }
-                { config.floe.inputs = supplied; }
-              ];
-            };
-          in
-          builtins.addErrorContext "while instantiating floe '${name}'" (
-            builtins.deepSeq ev.config.floe.inputs ev.config.floe.inputs
-          );
+          lib.genAttrs declared valueOf;
 
       def = builtins.seq _ (
         builtins.seq _bodyForm (

@@ -40,6 +40,18 @@ The format is based on
   identical output, and identical values merge without complaint, so nothing
   downstream could catch it.
 
+### Changed, and a deliberate loosening
+
+- **Input values are now validated lazily, per input.** A declared input
+  whose supplied value is badly typed, and which the floe body never reads,
+  no longer fails at instantiate time. This matches NixOS, which was
+  measured rather than assumed: a badly-typed `networking.hostName = 12345`
+  sits in a real system evaluation and never errors unless something reads
+  it. Floe was stricter than the system it is modelled on.
+
+  The _shape_ of an instantiate call stays eager — an undeclared key or a
+  missing required input is refused whether or not anything reads it.
+
 ### Removed
 
 - **`requiresOptional`.** An arity with no caller, in its second design.
@@ -50,6 +62,14 @@ The format is based on
 
 ### Fixed
 
+- **`checkInputs` ran a whole `lib.evalModules` per floe** to validate one
+  attrset of deployer-supplied values. It now calls
+  `lib.modules.mergeDefinitions` per option — the same module-system
+  machinery at the granularity the job has — for 6 MB against 107 MB on a
+  thousand floes of fifteen inputs, and about 2.5 MB per declared input
+  rather than 5.5 MB. Submodule defaults, `mkIf`, `mkForce` and `mkOrder`
+  all still work, because that is nixpkgs' own code doing it. See
+  [ADR 0004](docs/adr/0004-borrow-the-module-system-per-option.md).
 - **Hole resolution was O(units x holes).** `localProvidersOf` rescanned
   every unit's provides once per hole, and two separate passes did it.
   Indexing the provides once took a thousand-unit link from 1.14s / 586MB to

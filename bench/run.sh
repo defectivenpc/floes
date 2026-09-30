@@ -90,8 +90,8 @@ row 'body,    realistic'    'n = 1000; weight = 15; form = "body"'    "$base"
 
 echo
 echo '-- what `checkInputs` costs (body form, realistic out) --------'
-echo '   A whole evalModules per floe, at instantiate time, purely to'
-echo '   type-check what the deployer passed. Nothing to do with the'
+echo '   Validating what the deployer passed, via nixpkgs'"'"'                 '
+echo '   `lib.modules.mergeDefinitions` per option. Separate from the'
 echo '   floe body: a `modules` floe pays this *and* its own eval.'
 row '0 inputs declared'  'n = 1000; weight = 15; form = "body"; withInputs = false' "$base"
 row '3 inputs declared'  'n = 1000; weight = 15; form = "body"; inputCount = 3'     "$base"

@@ -70,48 +70,47 @@ tell a real option path from a plausible one; this can.
 
 Per-floe marginal cost at n=1000, three inputs each, `bench/run.sh`:
 
-|                       | `modules`        | `body`           |
-| --------------------- | ---------------- | ---------------- |
-| trivial output        | 0.22 ms / 130 MB | 0.12 ms / 64 MB  |
-| realistic output (15) | 0.38 ms / 191 MB | 0.25 ms / 100 MB |
+|                       | `modules`        | `body`          |
+| --------------------- | ---------------- | --------------- |
+| trivial output        | 0.16 ms / 89 MB  | 0.06 ms / 22 MB |
+| realistic output (15) | 0.32 ms / 150 MB | 0.19 ms / 58 MB |
 
-Linear in the number of floes: 10, 40, 100, 199 MB at n = 100, 400,
+Linear in the number of floes: 6, 23, 58, 116 MB at n = 100, 400,
 1000, 2000.
 
-`body` — a plain function — is about a third cheaper in time and half in
-memory than `modules`, which runs the floe's module list in its own
-`evalModules`. That is what `modules` buys: the module system's merge inside
-a floe, and the ability to host an existing NixOS module. Worth paying where
-it is wanted, which is why `networking` and `nginx` keep it.
+`body` — a plain function — is about half the cost of `modules`, which runs
+the floe's module list in its own `evalModules`. That is what `modules`
+buys: the module system's merge inside a floe, and the ability to host an
+existing NixOS module. Worth paying where it is wanted, which is why
+`networking` and `nginx` keep it.
 
-Neither form avoids `checkInputs`, a **separate** `evalModules` that runs at
-instantiate time purely to type-check what the deployer passed. Isolated:
+Neither form avoids `checkInputs`, which validates what the deployer passed.
+Isolated:
 
-| inputs declared | ms/floe | MB per 1000 floes |
-| --------------- | ------- | ----------------- |
-| 0               | 0.17    | 50                |
-| 3               | 0.25    | 100               |
-| 15              | 0.34    | 166               |
+| inputs declared | allocated per 1000 floes |
+| --------------- | ------------------------ |
+| 0               | 50 MB                    |
+| 3               | 58 MB                    |
+| 15              | 88 MB                    |
 
-Three inputs — what the example floes average — is about a third of a `body`
-floe's time and half its allocation, for work that is checking three values
-against three `lib.types`. A direct walk of the declared options would do it
-without the module system; nothing uses `mkIf` in an argument to
-`instantiate`. Not done, and the numbers are here so the decision has
-evidence.
+About **2.5 MB per declared input per thousand floes**, which is what makes
+a large input space affordable. It used to be 5.5 MB and the whole call used
+to cost twice as much, because `checkInputs` ran a whole `lib.evalModules`
+per floe — the module system's _whole-tree_ entry point — to validate one
+attrset. It now calls `lib.modules.mergeDefinitions` per option, which is
+the same machinery at the granularity the job actually has. See
+[ADR 0004](../docs/adr/0004-borrow-the-module-system-per-option.md).
 
 Against a whole NixOS evaluation, forced to the toplevel derivation path:
 
 |                       | cpu     | allocated |
 | --------------------- | ------- | --------- |
-| stock NixOS, no floes | 2.193 s | 614 MB    |
-| small link, 5 floes   | 1.808 s | 630 MB    |
-| fleet, 29 floes       | 1.684 s | 651 MB    |
+| stock NixOS, no floes | 2.142 s | 614 MB    |
+| small link, 5 floes   | 2.193 s | 630 MB    |
+| fleet, 29 floes       | 2.216 s | 650 MB    |
 
-**Twenty-nine floes cost 37 MB and no measurable time.** The cpu column is
-noise at this scale — the fleet reads faster than the baseline, which is
-scatter, not a result. The fleet's own link, 90 graph edges and two
-twenty-member collections, is 27 ms and 2 MB.
+**Twenty-nine floes cost 36 MB and about 3% of the time.** The fleet's own
+link — 90 graph edges, two twenty-member collections — is 37 ms and 1 MB.
 
 Floes are cheap. What is not cheap is wrapping nixpkgs modules, at ~77 ms
 and ~26 MB each; see [`wrapped/`](wrapped).
