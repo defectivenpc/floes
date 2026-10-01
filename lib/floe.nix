@@ -17,14 +17,38 @@ rec {
     check = isInstance;
   };
 
-  # Deferred-value token constructor, exposed to bodies as `floe.mkRuntime`
-  # via specialArgs (bound to the unit's link name).
-  mkRuntimeFor = instName: path: {
-    __runtime = true;
-    source = instName;
-    inherit path;
-    phase = "post-apply";
-  };
+  # Runtime-token constructor, exposed to bodies as `floe.mkRuntime` and bound
+  # to the unit's link name.
+  #
+  #   mkRuntime <retrieval signature> <ref>
+  #
+  # A value that does not exist until after apply, and a declaration of where it
+  # will be readable once it does. The *provider* says where, because it is the
+  # thing that creates the value: cert-manager knows it writes a Secret, postgres
+  # knows it writes a file. So one signature — `DATABASE.password` — survives two
+  # domains with two mechanisms, which it could not if the retrieval were welded
+  # to the field's type.
+  #
+  # Core checks `ref` against the retrieval signature's shape and records the
+  # signature's name. It never looks inside, and never learns what a Secret is:
+  # reading the value is a backend's job, and there may be many backends for one
+  # retrieval — a ConfigMap, a Secret, an annotation, a file, an HTTP lookup.
+  # `link.runtimeSites` is what a backend reads to find the work.
+  mkRuntimeFor =
+    instName: sig: ref:
+    if !(sig.__floeSig or false) then
+      throw (
+        "floe '${instName}': `mkRuntime` takes a retrieval signature and a ref — "
+        + "`mkRuntime SECRET_REF { namespace = …; name = …; }`. The signature says "
+        + "where the value will be readable; a backend implements how to read it."
+      )
+    else
+      {
+        __runtime = true;
+        source = instName;
+        retrieval = sig.name;
+        ref = types.checkValue [ instName "runtime" sig.name ] sig.shape ref;
+      };
 
   mkFloe =
     {

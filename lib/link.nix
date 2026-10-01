@@ -335,16 +335,55 @@ in
 
       # ---- Graph derivation ------------------------------------------------
 
+      # Every runtime token in a value, with the path it sits at.
+      #
+      # The path is a *list* and not a dotted string, because output keys contain
+      # dots — a Kubernetes annotation is `floe.dev/ca-fingerprint`, and a backend
+      # that had to split a string there would write to the wrong place.
       scanTokens =
-        v:
+        at: v:
         if types.isRuntimeToken v then
-          [ v ]
+          [
+            {
+              inherit at;
+              token = v;
+            }
+          ]
         else if builtins.isAttrs v then
-          lib.concatMap scanTokens (lib.attrValues v)
+          lib.concatLists (lib.mapAttrsToList (k: scanTokens (at ++ [ k ])) v)
         else if builtins.isList v then
-          lib.concatMap scanTokens v
+          lib.concatLists (lib.imap0 (i: scanTokens (at ++ [ i ])) v)
         else
           [ ];
+
+      # runtimeSites :: [{ unit; out; at; token; }]
+      #
+      # Where a value that does not exist yet has been written into output, and
+      # what a backend needs to read to fill it in. Core's whole contribution to
+      # the problem: it knows the work exists and exposes it, and knows nothing
+      # about how any of it is done.
+      #
+      # A backend walks this before applying anything, checks every `token.retrieval`
+      # against the resolvers it implements, and refuses to start rather than
+      # failing halfway. That check cannot live here: only the backend knows what
+      # it can resolve, so a list of resolvers in the link would be a claim about
+      # the backend that core could not verify.
+      runtimeSites = lib.concatMap (
+        u:
+        lib.concatLists (
+          lib.mapAttrsToList (
+            outName: outValue:
+            map (
+              site:
+              site
+              // {
+                unit = u;
+                out = (getInstance u).def.out.${outName}.name;
+              }
+            ) (scanTokens [ ] outValue)
+          ) fixed.${u}.outs
+        )
+      ) instNames;
 
       evalEdges = lib.concatMap (
         u:
@@ -369,17 +408,16 @@ in
 
       deployEdges = lib.unique (
         lib.concatMap (
-          u:
-          lib.concatMap (
-            tok:
-            lib.optional (tok ? source && tok.source != u) {
-              from = u;
-              to = tok.source;
-              via = lib.concatStringsSep "." (map toString (tok.path or [ ]));
-              kind = "deploy";
-            }
-          ) (scanTokens fixed.${u}.outs)
-        ) instNames
+          site:
+          lib.optional (site.token.source != site.unit) {
+            from = site.unit;
+            to = site.token.source;
+            # The retrieval, because that is the useful label: it says which
+            # resolver this edge needs a backend to have.
+            via = site.token.retrieval;
+            kind = "deploy";
+          }
+        ) runtimeSites
       );
 
       deployDepsOf = u: lib.unique (map (e: e.to) (lib.filter (e: e.from == u) deployEdges));
@@ -437,6 +475,13 @@ in
           edges = evalEdges ++ deployEdges;
         };
         phases = lib.genAttrs instNames (phaseOf [ ]);
+
+        inherit runtimeSites;
+
+        # The distinct retrievals a backend must implement for this link. A
+        # derived view of `runtimeSites`, carried because a preflight wants one
+        # lookup rather than a walk.
+        runtimeRetrievals = lib.unique (map (s: s.token.retrieval) runtimeSites);
 
         wiring = {
           one = wiringOne;

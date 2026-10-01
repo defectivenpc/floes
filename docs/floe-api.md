@@ -233,6 +233,73 @@ rather than here, because it was the one thing making the claim that this
 library knows nothing about Kubernetes false. What a floe actually gets is
 the prelude: this plus the distribution's own.
 
+### `T.runtime`, and retrieval signatures
+
+```nix
+# in the signature — *when*, and nothing else
+password = T.runtime T.str;
+
+# in the provider's body — *where*
+password = floe.mkRuntime FILE_REF { path = "/run/secrets/pw"; mode = "firstLine"; };
+```
+
+A runtime value does not exist until after apply. `T.runtime` says so, and
+`checkValue` refuses the token anywhere a concrete value is declared — which
+is the static safety: a floe cannot read a value that is not there yet, and
+finds out at `nix eval` rather than from a manifest containing an attrset.
+
+That leaves the question of how anything ever _does_ read it. The answer is
+that the **provider** declares where the value will be readable, as a ref
+against an ordinary signature:
+
+```nix
+FILE_REF = floe.mkSig {
+  name = "nixos.fileRef";
+  canonicalName = "fileRef";
+  description = "Readable from a file on the host, once the unit writing it has run.";
+  shape = T.record { path = T.str; mode = T.enum [ "text" "firstLine" ]; };
+};
+```
+
+Core checks the ref against that shape and records the signature's `name`.
+It never looks inside, and never learns what a file or a Secret is. **A
+retrieval signature says where a value will be readable; a backend
+implements how.**
+
+The provider declares it and not the signature's field, because the provider
+is what creates the value — cert-manager knows it writes a Secret, postgres
+knows it writes a file. So one `DATABASE.password` survives both domains,
+which it could not if the retrieval were welded to the type. `examples/` has
+one of each.
+
+#### What a backend reads
+
+```nix
+link.runtimeSites       # [{ unit; out; at; token; }] — read this, write it there
+link.runtimeRetrievals  # the distinct retrievals this link needs resolvers for
+```
+
+`at` is a **list** of keys, not a dotted string, because output keys contain
+dots: a Kubernetes annotation is `floe.dev/ca-fingerprint`, and splitting
+that would write to the wrong place.
+
+A backend walks `runtimeRetrievals` before applying anything, checks each
+against the resolvers it implements, and refuses to start rather than
+failing halfway. That check cannot live in core: only the backend knows what
+it can resolve, so a list of resolvers in the link would be a claim core
+could not verify.
+
+Core ships **no** substitution function, deliberately. A ConfigMap, a
+Secret, an annotation, a file and an HTTP lookup are five mechanisms for one
+job, and several may be right for one value depending on whether it is a
+secret. Choosing one in core would choose for every distribution at once.
+`tests/examples.nix` has a worked substitution, in a test rather than the
+library, as a demonstration that `runtimeSites` is sufficient to write one.
+
+Apply **order** is derived, not declared: a token in unit A sourced from
+unit B is a deploy edge, and `link.phases` is the topological depth of that
+subgraph. The token carries no phase of its own.
+
 ### `T.derivedFrom`
 
 ```nix

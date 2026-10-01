@@ -34,12 +34,12 @@ floe.mkFloe {
       config.floe.provides.ingress = {
         baseDomain = config.floe.inputs.baseDomain;
         className = config.floe.inputs.className;
-        # Not known until the LoadBalancer exists: emit a deferred token.
-        address = floe.mkRuntime [
-          "status"
-          "loadBalancer"
-          "ip"
-        ];
+        # Not known until the LoadBalancer exists, and readable from the
+        # Service's status once it does.
+        address = floe.mkRuntime sigs.STATUS_FIELD {
+          resource = "service/ingress-nginx-controller";
+          field = "status.loadBalancer.ingress[0].ip";
+        };
       };
 
       config.floe.out.k8s.controller = {

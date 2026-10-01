@@ -72,10 +72,30 @@ concerns; concerns with one answer stay plain holes. _Avoid_: facet,
 contribution slot, aggregate. It is not a separate mechanism and should not
 get a separate word.
 
-**Runtime value**: A value that does not exist until after apply, carried as
-a token. Reading one where a concrete value is required is an error at eval
-naming the floe it came from; a token reaching output data becomes a deploy
-edge and a later phase. _Avoid_: deferred, lazy, unknown.
+**Runtime value**: A value that does not exist until after apply — a
+generated secret, an allocated address, a CA fingerprint. Typed
+`T.runtime <inner>`, which says _when_ it exists and nothing about where.
+Reading one where a concrete value is required is an error at eval naming
+the floe it came from. _Avoid_: deferred, lazy, unknown.
+
+**Retrieval signature**: An ordinary signature describing _where_ a runtime
+value will be readable once it exists — a Secret and a key, a file and a
+path. **A retrieval signature says where a value will be readable; a backend
+implements how.** Declared by the provider, because the provider is what
+creates the value, which is why one signature can be answered with a Secret
+in Kubernetes and a file on NixOS. _Avoid_: mechanism — that is the
+backend's implementation, which core deliberately never learns.
+
+**Runtime token**: What a runtime value evaluates to: its source unit, its
+retrieval signature's name, and a ref checked against that signature's
+shape. Core records it and never looks inside.
+
+**Runtime site**: A place a runtime token reached a floe's _output_, as
+`{ unit; out; at; token; }` — a complete instruction to read one value and
+write it at one path. Every site in a link is `link.runtimeSites`; the
+distinct retrievals a backend must implement are `link.runtimeRetrievals`. A
+provide carrying a token is not a site: only output is something a backend
+substitutes into.
 
 **Derived field**: A field its provider computed by folding a collection.
 The linker withholds it from any peer that contributes to that same

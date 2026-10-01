@@ -97,13 +97,19 @@ floe.mkFloe {
         host = "127.0.0.1";
         inherit port passwordFile;
 
-        # Generated on first start. A consumer that interpolates this into
-        # NixOS config gets an eval error naming this instance as the source
-        # — and with two instances, naming *which* one.
-        password = floe.mkRuntime [
-          "database"
-          "password"
-        ];
+        # Generated on first start. A consumer that interpolates this into NixOS
+        # config gets an eval error naming this instance as the source — and with
+        # two instances, naming *which* one.
+        #
+        # The retrieval says it will be the first line of a file. Note that this
+        # floe offers both: `passwordFile` is the location, concrete at eval and
+        # usable by a systemd unit; `password` is the secret itself, which no
+        # eval-time consumer may read. A backend that needs the value reads the
+        # file; one that only needs to pass a credential uses the path.
+        password = floe.mkRuntime sigs.FILE_REF {
+          path = passwordFile;
+          mode = "firstLine";
+        };
       };
 
       out.nixosConfig = {

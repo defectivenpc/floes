@@ -9,6 +9,17 @@ let
   };
 in
 {
+  # A retrieval signature: where a value will be readable once it exists.
+  STATUS_FIELD = floe.mkSig {
+    name = "k8s.statusField";
+    canonicalName = "statusField";
+    description = "Fixture: readable from a field of a resource's status, once applied.";
+    shape = T.record {
+      resource = T.str;
+      field = T.str;
+    };
+  };
+
   INGRESS = floe.mkSig {
     name = "INGRESS";
     canonicalName = "ingress";

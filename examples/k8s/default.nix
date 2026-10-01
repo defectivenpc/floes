@@ -15,6 +15,21 @@ let
       };
     };
 
+    # A retrieval signature: where a value will be readable once it exists, not
+    # what it is. Core checks a ref against this shape and records the name; it
+    # never learns what a Secret is. A backend implements the reading, and there
+    # may be several — one that uses the API, one that shells out to kubectl.
+    SECRET_REF = floe.mkSig {
+      name = "k8s.secretRef";
+      canonicalName = "secretRef";
+      description = "Readable from a key of a Kubernetes Secret, once applied.";
+      shape = T.record {
+        namespace = T.str;
+        name = T.str;
+        key = T.str;
+      };
+    };
+
     ISSUER = floe.mkSig {
       name = "ISSUER";
       canonicalName = "issuer";
@@ -71,10 +86,14 @@ let
       {
         provides.issuer = {
           name = "cluster-ca";
-          caFingerprint = floe.mkRuntime [
-            "issuer"
-            "caFingerprint"
-          ];
+          # cert-manager knows where its CA lands, because cert-manager is what
+          # puts it there. The consumer never learns this — it reads
+          # `issuer.caFingerprint` and a backend fills it in.
+          caFingerprint = floe.mkRuntime sigs.SECRET_REF {
+            namespace = "cert-manager";
+            name = "cluster-ca-tls";
+            key = "ca.crt";
+          };
         };
 
         out.k8s.helmRelease = {

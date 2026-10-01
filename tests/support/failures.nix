@@ -120,7 +120,10 @@ in
             (
               { config, floe, ... }:
               {
-                config.floe.provides.mine.address = floe.mkRuntime [ "address" ];
+                config.floe.provides.mine.address = floe.mkRuntime sigs.STATUS_FIELD {
+                  resource = "service/${name}";
+                  field = "status.addr";
+                };
                 config.floe.out.k8s.waiter.metadata.annotations.peer = config.floe.requires.peer.address;
               }
             )

@@ -156,8 +156,10 @@ rec {
       (if isRuntimeToken v then v else checkValue path ty.inner v)
     else if isRuntimeToken v then
       fail (
-        "got a runtime value (from '${toString (v.source or "?")}', resolves "
-        + "'${toString (v.phase or "later")}') where concrete ${ty.name} is required"
+        "got a runtime value where concrete ${ty.name} is required. It comes from "
+        + "'${toString (v.source or "?")}' and will be readable via "
+        + "'${toString (v.retrieval or "?")}' once that has been applied — so it "
+        + "cannot be used at evaluation time."
       )
     else if ty.tag == "nullOr" then
       (if v == null then v else checkValue path ty.inner v)

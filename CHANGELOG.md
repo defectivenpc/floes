@@ -23,6 +23,13 @@ The format is based on
 
 ### Added
 
+- **`link.runtimeSites` and `link.runtimeRetrievals`**, so a backend can
+  find the values it must reify: one site per token that reached output, as
+  `{ unit; out; at; token; }`, where `at` is a list of keys because output
+  keys contain dots. Core ships no substitution function deliberately — a
+  ConfigMap, a Secret, an annotation, a file and an HTTP lookup are five
+  mechanisms for one job, and choosing in core would choose for every
+  distribution at once.
 - **`T.derivedFrom <sig> <inner>`**, marking a field its provider computed
   by folding a collection. `link` refuses that one field to any peer
   contributing to the same collection, before anything evaluates. This
@@ -39,6 +46,27 @@ The format is based on
   paths instead of keying them by `floe.name`. Two instances would emit
   identical output, and identical values merge without complaint, so nothing
   downstream could catch it.
+
+### Changed
+
+- **A runtime value now says where it will be readable.** `T.runtime` marked
+  a value as not-yet-existing and produced a token carrying a meaningless
+  `path` and a constant `phase`; RFC 0001's "backends substitute token
+  sites" was not implementable against it. The _provider_ now declares a
+  **retrieval** — an ordinary signature describing where the value lands —
+  and core checks the ref, records the signature's name, and never looks
+  inside.
+
+  `floe.mkRuntime` takes two arguments:
+  `mkRuntime SECRET_REF { namespace = …; }`. The token's `path` and `phase`
+  are gone — `path` was only the deploy edge's label, which is now the
+  retrieval name, and apply order was always _derived_ as `link.phases`
+  rather than declared.
+
+  The provider declares it rather than the signature's field because
+  `DATABASE.password` is a Secret in Kubernetes and a file on NixOS: one
+  signature, two mechanisms. See
+  [ADR 0005](docs/adr/0005-the-provider-declares-the-retrieval.md).
 
 ### Changed, and a deliberate loosening
 

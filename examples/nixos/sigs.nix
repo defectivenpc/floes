@@ -73,6 +73,25 @@ rec {
     };
   };
 
+  # A retrieval signature for this domain, and the whole point of the two
+  # examples having one each: `DATABASE.password` is `T.runtime T.str` in both,
+  # and the mechanism is entirely different. A Kubernetes provider answers it
+  # with `k8s.secretRef`; here it is a file on the host. One signature, two
+  # mechanisms — which is only possible because the *provider* declares the
+  # retrieval rather than the signature's field doing it.
+  FILE_REF = floe.mkSig {
+    name = "nixos.fileRef";
+    canonicalName = "fileRef";
+    description = "Readable from a file on the host, once the unit that writes it has run.";
+    shape = floe.T.record {
+      path = floe.T.str;
+      mode = floe.T.enum [
+        "text"
+        "firstLine"
+      ];
+    };
+  };
+
   DATABASE = floe.mkSig {
     name = "DATABASE";
     canonicalName = "database";
