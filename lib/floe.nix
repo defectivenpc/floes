@@ -17,10 +17,10 @@ rec {
     check = isInstance;
   };
 
-  # Runtime-token constructor, exposed to bodies as `floe.mkRuntime` and bound
+  # Deferred-token constructor, exposed to bodies as `floe.mkDeferred` and bound
   # to the unit's link name.
   #
-  #   mkRuntime <retrieval signature> <ref>
+  #   mkDeferred <retrieval signature> <ref>
   #
   # A value that does not exist until after apply, and a declaration of where it
   # will be readable once it does. The *provider* says where, because it is the
@@ -33,21 +33,21 @@ rec {
   # signature's name. It never looks inside, and never learns what a Secret is:
   # reading the value is a backend's job, and there may be many backends for one
   # retrieval — a ConfigMap, a Secret, an annotation, a file, an HTTP lookup.
-  # `link.runtimeSites` is what a backend reads to find the work.
-  mkRuntimeFor =
+  # `link.deferredSites` is what a backend reads to find the work.
+  mkDeferredFor =
     instName: sig: ref:
     if !(sig.__floeSig or false) then
       throw (
-        "floe '${instName}': `mkRuntime` takes a retrieval signature and a ref — "
-        + "`mkRuntime SECRET_REF { namespace = …; name = …; }`. The signature says "
+        "floe '${instName}': `mkDeferred` takes a retrieval signature and a ref — "
+        + "`mkDeferred SECRET_REF { namespace = …; name = …; }`. The signature says "
         + "where the value will be readable; a backend implements how to read it."
       )
     else
       {
-        __runtime = true;
+        __deferred = true;
         source = instName;
         retrieval = sig.name;
-        ref = types.checkValue [ instName "runtime" sig.name ] sig.shape ref;
+        ref = types.checkValue [ instName "deferred" sig.name ] sig.shape ref;
       };
 
   mkFloe =
@@ -257,7 +257,7 @@ rec {
       # be instantiated twice has to key its output by it.
       floeArg = {
         name = instName;
-        mkRuntime = mkRuntimeFor instName;
+        mkDeferred = mkDeferredFor instName;
       };
 
       viaBody =

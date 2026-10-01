@@ -10,7 +10,7 @@
 # contributes to — was `infinite recursion encountered` until `T.derivedFrom`
 # made `link` refuse the read up front; it is a floe `throw` now, and has a
 # real test. `broken.leaky` always was one. This is what is left:
-# a runtime token coerced by string interpolation, where Nix reports before
+# a deferred token coerced by string interpolation, where Nix reports before
 # anything typed sees it. RFC 0001, open question 1.
 set -uo pipefail
 cd "$(dirname "$0")/.."

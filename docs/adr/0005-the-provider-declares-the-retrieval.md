@@ -1,8 +1,8 @@
-# The provider declares where a runtime value will be readable
+# The provider declares where a deferred value will be readable
 
-`T.runtime` marked a value as not-yet-existing and produced a token carrying
-`{ source; path; phase; }`. That bought the static safety it was for — a
-floe cannot read a value that does not exist yet, and finds out at
+`T.deferred` marked a value as not-yet-existing and produced a token
+carrying `{ source; path; phase; }`. That bought the static safety it was
+for — a floe cannot read a value that does not exist yet, and finds out at
 `nix eval`. It bought nothing else: `path` was a label, `phase` was the
 constant `"post-apply"`, and RFC 0001 §4.8's _"backends substitute token
 sites between phases"_ was not implementable against it. A backend was
@@ -13,7 +13,7 @@ where the value will be readable, plus a ref checked against that
 signature's shape.
 
 ```nix
-caFingerprint = floe.mkRuntime SECRET_REF {
+caFingerprint = floe.mkDeferred SECRET_REF {
   namespace = "cert-manager"; name = "cluster-ca-tls"; key = "ca.crt";
 };
 ```
@@ -25,7 +25,7 @@ implements how.**
 ## Why the provider and not the signature field
 
 The mechanism could have lived on the type —
-`T.runtime { via = "k8s.secret"; } T.str` — which is easier to find when
+`T.deferred { via = "k8s.secret"; } T.str` — which is easier to find when
 reading a signature. It would weld the signature to one domain.
 
 The deciding case: `DATABASE.password` is answered in Kubernetes by a Secret
@@ -47,15 +47,15 @@ every distribution at once, and core cannot know how a value is reified.
 What core does instead is make the work discoverable:
 
 ```nix
-link.runtimeSites       # [{ unit; out; at; token; }]
-link.runtimeRetrievals  # the distinct retrievals needing resolvers
+link.deferredSites       # [{ unit; out; at; token; }]
+link.deferredRetrievals  # the distinct retrievals needing resolvers
 ```
 
 `at` is a list of keys rather than a dotted string, because output keys
 contain dots — `floe.dev/ca-fingerprint` is a real Kubernetes annotation,
 and a backend splitting on `.` would write to the wrong place.
 `tests/examples.nix` performs a substitution in a test, which is the proof
-that `runtimeSites` is sufficient to write a backend against: if it were
+that `deferredSites` is sufficient to write a backend against: if it were
 not, the test would not work either.
 
 ## Why there is no check that a backend can resolve a link
@@ -67,7 +67,7 @@ at apply time. A `link { resolvers = [ … ]; }` parameter was rejected for a
 sharper reason — it is a claim about the backend, and core cannot verify
 claims about the backend, so it would be ceremony that can be wrong.
 
-The backend preflights: walk `runtimeRetrievals`, compare against its own
+The backend preflights: walk `deferredRetrievals`, compare against its own
 resolver registry, refuse to start. That happens where the knowledge is, and
 still before anything is applied.
 

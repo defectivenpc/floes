@@ -143,7 +143,7 @@ scope a link falls back to — `scope` and the `T.local` locality marking that
 served it were removed as unexercised. `docs/adr/0003` says why, and
 `docs/migrating.md` says what to do instead.
 
-Two things Backpack has no counterpart for, and floe now does. `T.runtime`
+Two things Backpack has no counterpart for, and floe now does. `T.deferred`
 marks a value that does not exist until after apply, from which the linker
 derives a deploy edge. `T.derivedFrom` marks a field its provider folded out
 of a collection, which the linker withholds from the peers that feed that

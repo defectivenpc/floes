@@ -27,8 +27,8 @@ in
     shape = T.record {
       baseDomain = T.dnsName;
       className = T.str;
-      # Only exists after apply; typed as runtime so eval-time misuse is an error.
-      address = T.runtime T.str;
+      # Only exists after apply; typed as deferred so eval-time misuse is an error.
+      address = T.deferred T.str;
     };
   };
 

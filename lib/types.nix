@@ -104,10 +104,10 @@ rec {
 
   # A value that does not exist until after apply. Carried as a token; reading
   # one where a concrete value is required is an error naming its source.
-  runtime = inner: {
-    tag = "runtime";
+  deferred = inner: {
+    tag = "deferred";
     inherit inner;
-    name = "runtime ${inner.name}";
+    name = "deferred ${inner.name}";
   };
 
   moduleType = inner: {
@@ -130,7 +130,7 @@ rec {
     name = "tagged union { ${lib.concatStringsSep " | " (lib.attrNames variants)} }";
   };
 
-  isRuntimeToken = v: isAttrs v && (v.__runtime or false) == true;
+  isDeferredToken = v: isAttrs v && (v.__deferred or false) == true;
 
   # checkValue :: [string] -> type -> value -> value
   # Throws with a dotted path on mismatch; returns the (restricted) value.
@@ -152,11 +152,11 @@ rec {
       v
     else if ty.tag == "derivedFrom" then
       checkValue path ty.inner v
-    else if ty.tag == "runtime" then
-      (if isRuntimeToken v then v else checkValue path ty.inner v)
-    else if isRuntimeToken v then
+    else if ty.tag == "deferred" then
+      (if isDeferredToken v then v else checkValue path ty.inner v)
+    else if isDeferredToken v then
       fail (
-        "got a runtime value where concrete ${ty.name} is required. It comes from "
+        "got a deferred value where concrete ${ty.name} is required. It comes from "
         + "'${toString (v.source or "?")}' and will be readable via "
         + "'${toString (v.retrieval or "?")}' once that has been applied — so it "
         + "cannot be used at evaluation time."

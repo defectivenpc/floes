@@ -36,7 +36,7 @@ floe.mkFloe {
         className = config.floe.inputs.className;
         # Not known until the LoadBalancer exists, and readable from the
         # Service's status once it does.
-        address = floe.mkRuntime sigs.STATUS_FIELD {
+        address = floe.mkDeferred sigs.STATUS_FIELD {
           resource = "service/ingress-nginx-controller";
           field = "status.loadBalancer.ingress[0].ip";
         };

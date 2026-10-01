@@ -74,7 +74,7 @@ rec {
   };
 
   # A retrieval signature for this domain, and the whole point of the two
-  # examples having one each: `DATABASE.password` is `T.runtime T.str` in both,
+  # examples having one each: `DATABASE.password` is `T.deferred T.str` in both,
   # and the mechanism is entirely different. A Kubernetes provider answers it
   # with `k8s.secretRef`; here it is a file on the host. One signature, two
   # mechanisms — which is only possible because the *provider* declares the
@@ -107,7 +107,7 @@ rec {
       # and generated it. A consumer that interpolates this into NixOS config
       # gets a type error from the linker naming postgres as the source, rather
       # than an attrset where NixOS wanted a string.
-      password = T.runtime T.str;
+      password = T.deferred T.str;
     };
 
     # Deliberately absent: `dataDir`. Postgres knows it, and in stock NixOS

@@ -120,7 +120,7 @@ body =
 ```
 
 `floe` carries `floe.name` — the link's name for this instance — and
-`floe.mkRuntime`. A floe that can be instantiated twice must key its output
+`floe.mkDeferred`. A floe that can be instantiated twice must key its output
 by `floe.name`; see `singleton` above.
 
 **`modules`**, ordinary NixOS modules in the floe's own `evalModules`, for a
@@ -199,7 +199,7 @@ enforced where they are used: `mkFloe` refuses a `T` in `inputs`, and
 
 `lib.types` cannot do the signature side, for two reasons:
 
-- **A field can carry facts the linker reads.** `T.runtime` says a value
+- **A field can carry facts the linker reads.** `T.deferred` says a value
   does not exist until after apply, and `T.derivedFrom` says a field was
   folded out of a collection; the linker reads both and acts on them before
   any body evaluates. A NixOS type has nowhere to carry that.
@@ -224,7 +224,7 @@ can express, not for speed. `docs/adr/0004` has the measurements.
 | `T.enum`, `T.nullOr`, `T.listOf`, `T.attrsOf` | the usual combinators                                                   |
 | `T.record`                                    | a fixed set of named fields                                             |
 | `T.taggedUnion`                               | externally tagged; matches serde's default                              |
-| `T.runtime`                                   | not known until after apply — the linker derives a deploy edge from one |
+| `T.deferred`                                  | not known until after apply — the linker derives a deploy edge from one |
 | `T.derivedFrom`                               | folded out of a collection — the linker withholds it from contributors  |
 | `T.moduleType`                                | a NixOS type, for a field that is a schema                              |
 
@@ -233,17 +233,17 @@ rather than here, because it was the one thing making the claim that this
 library knows nothing about Kubernetes false. What a floe actually gets is
 the prelude: this plus the distribution's own.
 
-### `T.runtime`, and retrieval signatures
+### `T.deferred`, and retrieval signatures
 
 ```nix
 # in the signature — *when*, and nothing else
-password = T.runtime T.str;
+password = T.deferred T.str;
 
 # in the provider's body — *where*
-password = floe.mkRuntime FILE_REF { path = "/run/secrets/pw"; mode = "firstLine"; };
+password = floe.mkDeferred FILE_REF { path = "/run/secrets/pw"; mode = "firstLine"; };
 ```
 
-A runtime value does not exist until after apply. `T.runtime` says so, and
+A deferred value does not exist until after apply. `T.deferred` says so, and
 `checkValue` refuses the token anywhere a concrete value is declared — which
 is the static safety: a floe cannot read a value that is not there yet, and
 finds out at `nix eval` rather than from a manifest containing an attrset.
@@ -275,15 +275,15 @@ one of each.
 #### What a backend reads
 
 ```nix
-link.runtimeSites       # [{ unit; out; at; token; }] — read this, write it there
-link.runtimeRetrievals  # the distinct retrievals this link needs resolvers for
+link.deferredSites       # [{ unit; out; at; token; }] — read this, write it there
+link.deferredRetrievals  # the distinct retrievals this link needs resolvers for
 ```
 
 `at` is a **list** of keys, not a dotted string, because output keys contain
 dots: a Kubernetes annotation is `floe.dev/ca-fingerprint`, and splitting
 that would write to the wrong place.
 
-A backend walks `runtimeRetrievals` before applying anything, checks each
+A backend walks `deferredRetrievals` before applying anything, checks each
 against the resolvers it implements, and refuses to start rather than
 failing halfway. That check cannot live in core: only the backend knows what
 it can resolve, so a list of resolvers in the link would be a claim core
@@ -294,7 +294,7 @@ Secret, an annotation, a file and an HTTP lookup are five mechanisms for one
 job, and several may be right for one value depending on whether it is a
 secret. Choosing one in core would choose for every distribution at once.
 `tests/examples.nix` has a worked substitution, in a test rather than the
-library, as a demonstration that `runtimeSites` is sufficient to write one.
+library, as a demonstration that `deferredSites` is sufficient to write one.
 
 Apply **order** is derived, not declared: a token in unit A sourced from
 unit B is a deploy edge, and `link.phases` is the topological depth of that

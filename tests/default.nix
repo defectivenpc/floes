@@ -173,7 +173,7 @@ in
 
   # An eval edge says A needed B's config to render, one per contributor for a
   # collection. Two pairs are cycles laziness carries; the deploy edge is
-  # derived from a runtime token the link-time scan found in `out.k8s`, and is
+  # derived from a deferred token the link-time scan found in `out.k8s`, and is
   # labelled with the *retrieval* — which says what a backend must implement to
   # satisfy it.
   testEdges = {

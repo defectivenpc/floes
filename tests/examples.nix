@@ -372,13 +372,13 @@ lib.runTests {
   # question 1 — deferred transparency in interpolation — and it is pinned in
   # `examples/refuse.sh`, where a non-zero exit is the assertion.
 
-  # ---- Runtime values, and what a backend does with them ----------------
+  # ---- Deferred values, and what a backend does with them ----------------
 
   # The two examples declare the *same* kind of value — one that does not exist
   # until after apply — through mechanisms with nothing in common. That is the
   # whole reason the retrieval is the provider's to declare and not the
   # signature field's: `DATABASE.password` and `ISSUER.caFingerprint` are both
-  # `T.runtime T.str`, and neither signature knows anything about Secrets or
+  # `T.deferred T.str`, and neither signature knows anything about Secrets or
   # files.
   testOneTypeTwoMechanisms = {
     expr = {
@@ -391,7 +391,7 @@ lib.runTests {
     };
   };
 
-  # And the NixOS link has *no* runtime sites, which is the correct answer rather
+  # And the NixOS link has *no* deferred sites, which is the correct answer rather
   # than a gap. A site is a token that reached **output**; in NixOS nothing puts
   # the secret in config, because `DATABASE` offers `passwordFile` beside
   # `password` and a systemd unit takes the path. Putting the value itself in
@@ -403,8 +403,8 @@ lib.runTests {
   # cannot know which consumer it will get.
   testAPathBeatsASiteWhereOneWillDo = {
     expr = {
-      k8s = lib.length k8s.link.runtimeSites;
-      nixos = lib.length nixos.link.runtimeSites;
+      k8s = lib.length k8s.link.deferredSites;
+      nixos = lib.length nixos.link.deferredSites;
       # The concrete alternative the NixOS consumers actually use.
       webappUsesThePath =
         nixos.link.out."nixos.config".webapp.systemd.services.webapp.serviceConfig.LoadCredential;
@@ -420,7 +420,7 @@ lib.runTests {
   # a list because output keys contain dots — `floe.dev/ca-fingerprint` — and a
   # backend splitting a dotted string would write to the wrong place.
   testASiteSaysWhatToReadAndWhereToPutIt = {
-    expr = lib.head k8s.link.runtimeSites;
+    expr = lib.head k8s.link.deferredSites;
     expected = {
       unit = "podinfo";
       out = "k8s.manifests";
@@ -430,7 +430,7 @@ lib.runTests {
         "floe.dev/ca-fingerprint"
       ];
       token = {
-        __runtime = true;
+        __deferred = true;
         source = "cert-manager";
         retrieval = "k8s.secretRef";
         ref = {
@@ -443,11 +443,11 @@ lib.runTests {
   };
 
   # What a backend does, in the test rather than in the library — because core
-  # cannot know how a value is reified, only that it must be. If `runtimeSites`
+  # cannot know how a value is reified, only that it must be. If `deferredSites`
   # were not sufficient to write this, it would not be sufficient for a real
   # backend either, and that is the point of having it here.
   #
-  # Core deliberately ships no `resolveRuntime`: a ConfigMap, a Secret, an
+  # Core deliberately ships no resolver: a ConfigMap, a Secret, an
   # annotation, a file and an HTTP lookup are five mechanisms for one job, and
   # picking one in core would be choosing for every distribution at once.
   testABackendCanCloseTheLoop = {
@@ -472,12 +472,12 @@ lib.runTests {
             }
           ] out;
 
-        applied = lib.foldl' fill k8s.link.out k8s.link.runtimeSites;
+        applied = lib.foldl' fill k8s.link.out k8s.link.deferredSites;
         ann = applied."k8s.manifests".podinfo.certificate.annotations."floe.dev/ca-fingerprint";
       in
       {
         # Before: a token, which is not a Kubernetes annotation.
-        beforeIsAToken = floe.isRuntimeToken (
+        beforeIsAToken = floe.isDeferredToken (
           k8s.link.out."k8s.manifests".podinfo.certificate.annotations."floe.dev/ca-fingerprint"
         );
         # After: a string, which is.

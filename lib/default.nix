@@ -13,7 +13,7 @@ let
 in
 {
   T = types;
-  inherit (types) checkValue isRuntimeToken;
+  inherit (types) checkValue isDeferredToken;
   inherit (interfaces)
     mkSig
     renderInputs

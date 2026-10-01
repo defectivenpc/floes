@@ -1,6 +1,6 @@
 # link: resolve holes by signature name, tie the graph with lib.fix, seal
 # provides against signatures, collect outputs by signature name, scan for
-# runtime tokens to derive deploy edges and phases, then run policies.
+# deferred tokens to derive deploy edges and phases, then run policies.
 {
   lib,
   types,
@@ -335,14 +335,14 @@ in
 
       # ---- Graph derivation ------------------------------------------------
 
-      # Every runtime token in a value, with the path it sits at.
+      # Every deferred token in a value, with the path it sits at.
       #
       # The path is a *list* and not a dotted string, because output keys contain
       # dots — a Kubernetes annotation is `floe.dev/ca-fingerprint`, and a backend
       # that had to split a string there would write to the wrong place.
       scanTokens =
         at: v:
-        if types.isRuntimeToken v then
+        if types.isDeferredToken v then
           [
             {
               inherit at;
@@ -356,7 +356,7 @@ in
         else
           [ ];
 
-      # runtimeSites :: [{ unit; out; at; token; }]
+      # deferredSites :: [{ unit; out; at; token; }]
       #
       # Where a value that does not exist yet has been written into output, and
       # what a backend needs to read to fill it in. Core's whole contribution to
@@ -368,7 +368,7 @@ in
       # failing halfway. That check cannot live here: only the backend knows what
       # it can resolve, so a list of resolvers in the link would be a claim about
       # the backend that core could not verify.
-      runtimeSites = lib.concatMap (
+      deferredSites = lib.concatMap (
         u:
         lib.concatLists (
           lib.mapAttrsToList (
@@ -417,7 +417,7 @@ in
             via = site.token.retrieval;
             kind = "deploy";
           }
-        ) runtimeSites
+        ) deferredSites
       );
 
       deployDepsOf = u: lib.unique (map (e: e.to) (lib.filter (e: e.from == u) deployEdges));
@@ -425,7 +425,7 @@ in
       phaseOf =
         seen: u:
         if lib.elem u seen then
-          throw ("floe link error: runtime-value cycle: " + lib.concatStringsSep " -> " (seen ++ [ u ]))
+          throw ("floe link error: deferred-value cycle: " + lib.concatStringsSep " -> " (seen ++ [ u ]))
         else
           let
             deps = deployDepsOf u;
@@ -476,12 +476,12 @@ in
         };
         phases = lib.genAttrs instNames (phaseOf [ ]);
 
-        inherit runtimeSites;
+        inherit deferredSites;
 
         # The distinct retrievals a backend must implement for this link. A
-        # derived view of `runtimeSites`, carried because a preflight wants one
+        # derived view of `deferredSites`, carried because a preflight wants one
         # lookup rather than a walk.
-        runtimeRetrievals = lib.unique (map (s: s.token.retrieval) runtimeSites);
+        deferredRetrievals = lib.unique (map (s: s.token.retrieval) deferredSites);
 
         wiring = {
           one = wiringOne;

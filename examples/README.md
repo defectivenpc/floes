@@ -56,7 +56,7 @@ promise it, so nothing can read it. In stock NixOS that read is one
 attribute away and nobody declared it.
 
 **A value that does not exist yet is refused at eval — and the loop
-closes.** Postgres's password is `T.runtime`: put it where NixOS config
+closes.** Postgres's password is `T.deferred`: put it where NixOS config
 wants a string and the linker says so, naming the floe it came from, instead
 of NixOS reporting an attrset where it wanted text some frames later.
 
@@ -64,11 +64,11 @@ That is half of it. The _provider_ also declares a **retrieval** — an
 ordinary signature saying where the value will be readable once it exists —
 so something can eventually fill it in. Postgres declares `nixos.fileRef`;
 cert-manager in the k8s example declares `k8s.secretRef`. The same
-`T.runtime T.str` on both sides, two mechanisms with nothing in common,
+`T.deferred T.str` on both sides, two mechanisms with nothing in common,
 which works only because the provider declares the retrieval and not the
 signature's field.
 
-Core never learns what a Secret is. It exposes `link.runtimeSites` — one
+Core never learns what a Secret is. It exposes `link.deferredSites` — one
 entry per token that reached output, saying what to read and where to write
 it — and ships no substitution function, because a ConfigMap, a Secret, an
 annotation, a file and an HTTP lookup are five mechanisms for one job.
@@ -205,7 +205,7 @@ That also made the failure **testable**, which it had not been:
 can be tested tracks _who reported it_. Rejecting the bad read up front
 moved it from Nix's report to floe's. One case remains on the wrong side of
 that line — [`nixos/broken.nix`](nixos/broken.nix)'s `interpolating`, where
-a runtime token is coerced by string interpolation before anything typed
+a deferred token is coerced by string interpolation before anything typed
 sees it, which is RFC 0001's open question 1. No test can hold it and no
 library code can wrap them in a better message, because nothing runs after
 them. A readable error for a structural read in a cycle has to come from

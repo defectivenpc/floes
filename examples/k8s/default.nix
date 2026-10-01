@@ -37,7 +37,7 @@ let
       shape = T.record {
         name = T.str;
         # Not known until cert-manager has generated its CA.
-        caFingerprint = T.runtime T.str;
+        caFingerprint = T.deferred T.str;
       };
     };
   };
@@ -89,7 +89,7 @@ let
           # cert-manager knows where its CA lands, because cert-manager is what
           # puts it there. The consumer never learns this — it reads
           # `issuer.caFingerprint` and a backend fills it in.
-          caFingerprint = floe.mkRuntime sigs.SECRET_REF {
+          caFingerprint = floe.mkDeferred sigs.SECRET_REF {
             namespace = "cert-manager";
             name = "cluster-ca-tls";
             key = "ca.crt";
@@ -119,7 +119,7 @@ let
       {
         out.k8s.certificate = {
           issuerRef.name = requires.issuer.name;
-          # The runtime token in output data is what the linker scans for, and
+          # The deferred token in output data is what the linker scans for, and
           # it is why podinfo lands in a later phase than cert-manager.
           annotations."floe.dev/ca-fingerprint" = requires.issuer.caFingerprint;
         };

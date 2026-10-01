@@ -98,7 +98,7 @@ in
           name = "LOOP_${n}";
           canonicalName = "loop${n}";
           description = "Fixture: a post-apply address, one half of a cycle.";
-          shape = floe.T.record { address = floe.T.runtime floe.T.str; };
+          shape = floe.T.record { address = floe.T.deferred floe.T.str; };
         };
 
       a = loopSig "A";
@@ -120,7 +120,7 @@ in
             (
               { config, floe, ... }:
               {
-                config.floe.provides.mine.address = floe.mkRuntime sigs.STATUS_FIELD {
+                config.floe.provides.mine.address = floe.mkDeferred sigs.STATUS_FIELD {
                   resource = "service/${name}";
                   field = "status.addr";
                 };

@@ -13,9 +13,7 @@ weight for it would be the speculative generality the review was deleting.
 | `mkSig { fields = { a = T.str; }; }`                      | `mkSig { shape = T.record { a = T.str; }; }`         |
 | `mkOutputKind { name; description; schema; }`             | `mkSig { name; canonicalName; description; shape; }` |
 | `out.<localName> = someKind`                              | `out.<canonicalName> = someSig`                      |
-| `T.deferred T.str`                                        | `T.runtime T.str`                                    |
-| `floe.mkDeferred [ … ]` (in a body)                       | `floe.mkRuntime [ … ]`                               |
-| `floe.isDeferredToken`                                    | `floe.isRuntimeToken`                                |
+| `floe.mkDeferred [ "a" "b" ]`                             | `floe.mkDeferred <retrievalSig> <ref>`               |
 | `config.floe.out.<k>` where `<k>` was a kind's local name | keyed by the signature's `canonicalName`             |
 
 `link`'s result is unchanged except that `wiring.optional` and
@@ -46,6 +44,32 @@ That is worse — no locality checking, and the deployer threads them by hand
 — and it is the honest state of things rather than a recommendation.
 
 ## Added
+
+**A retrieval signature for every deferred value.** `mkDeferred` used to
+take a label path — `mkDeferred [ "status" "ip" ]` — which told a backend
+nothing it could act on. It now takes a signature describing _where_ the
+value will be readable, plus a ref checked against that signature's shape:
+
+```nix
+SECRET_REF = mkSig {
+  name = "k8s.secretRef"; canonicalName = "secretRef";
+  description = "Readable from a key of a Secret, once applied.";
+  shape = T.record { namespace = T.str; name = T.str; key = T.str; };
+};
+
+caFingerprint = floe.mkDeferred SECRET_REF {
+  namespace = "cert-manager"; name = "ca-tls"; key = "ca.crt";
+};
+```
+
+Declare one retrieval signature per mechanism your distribution supports,
+and have each provider name the one it actually uses. The token's `path` and
+`phase` fields are gone: `path` was only the deploy edge's label, which is
+now the retrieval name, and apply order was always derived as `link.phases`.
+
+**`link.deferredSites` and `link.deferredRetrievals`**, for a backend to
+find the values it must reify. Core ships no substitution function; see
+[ADR 0005](adr/0005-the-provider-declares-the-retrieval.md).
 
 **`T.derivedFrom <sig> <inner>`.** Marks a field a provider computed by
 folding its collection of `<sig>`. `link` refuses that one field to any peer

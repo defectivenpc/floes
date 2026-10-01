@@ -18,12 +18,12 @@ The format is based on
 - **`mkSig`'s `as` is now `canonicalName`**, and `link` enforces it: no
   single hole or provide name may mean two different signatures. Not the
   reverse — a floe may hold a primary and a replica on one signature.
-- **`T.deferred` is now `T.runtime`**, with `mkDeferred` → `mkRuntime` and
-  `isDeferredToken` → `isRuntimeToken`.
+- **`T.deferred` is now `T.deferred`**, with `mkDeferred` → `mkDeferred` and
+  `isDeferredToken` → `isDeferredToken`.
 
 ### Added
 
-- **`link.runtimeSites` and `link.runtimeRetrievals`**, so a backend can
+- **`link.deferredSites` and `link.deferredRetrievals`**, so a backend can
   find the values it must reify: one site per token that reached output, as
   `{ unit; out; at; token; }`, where `at` is a list of keys because output
   keys contain dots. Core ships no substitution function deliberately — a
@@ -49,16 +49,16 @@ The format is based on
 
 ### Changed
 
-- **A runtime value now says where it will be readable.** `T.runtime` marked
-  a value as not-yet-existing and produced a token carrying a meaningless
-  `path` and a constant `phase`; RFC 0001's "backends substitute token
-  sites" was not implementable against it. The _provider_ now declares a
-  **retrieval** — an ordinary signature describing where the value lands —
+- **A deferred value now says where it will be readable.** `T.deferred`
+  marked a value as not-yet-existing and produced a token carrying a
+  meaningless `path` and a constant `phase`; RFC 0001's "backends substitute
+  token sites" was not implementable against it. The _provider_ now declares
+  a **retrieval** — an ordinary signature describing where the value lands —
   and core checks the ref, records the signature's name, and never looks
   inside.
 
-  `floe.mkRuntime` takes two arguments:
-  `mkRuntime SECRET_REF { namespace = …; }`. The token's `path` and `phase`
+  `floe.mkDeferred` takes two arguments:
+  `mkDeferred SECRET_REF { namespace = …; }`. The token's `path` and `phase`
   are gone — `path` was only the deploy edge's label, which is now the
   retrieval name, and apply order was always _derived_ as `link.phases`
   rather than declared.

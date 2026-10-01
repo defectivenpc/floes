@@ -106,7 +106,7 @@ floe.mkFloe {
         # usable by a systemd unit; `password` is the secret itself, which no
         # eval-time consumer may read. A backend that needs the value reads the
         # file; one that only needs to pass a credential uses the path.
-        password = floe.mkRuntime sigs.FILE_REF {
+        password = floe.mkDeferred sigs.FILE_REF {
           path = passwordFile;
           mode = "firstLine";
         };

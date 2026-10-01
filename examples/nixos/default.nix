@@ -53,7 +53,7 @@ let
   #
   # There is no guard against a deferred value reaching here, because there
   # cannot be one: every fragment is checked against its floe's own output
-  # schema, and `T.runtime` where a concrete type is declared is already an
+  # schema, and `T.deferred` where a concrete type is declared is already an
   # error at link. `lib/types.nix` does it, naming the floe the value came from.
   toNixosModules =
     result:

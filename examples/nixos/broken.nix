@@ -76,7 +76,7 @@ in
   # 3. The same mistake, written as string interpolation.
   #
   # Here the token is coerced before anything typed ever sees it, so the error
-  # is Nix's: "cannot coerce a set to a string: { __runtime = true; ... }".
+  # is Nix's: "cannot coerce a set to a string: { __deferred = true; ... }".
   # It is worse than (2) — no path, no explanation — but not useless, because
   # Nix prints the token and `source = "postgres"` is right there in it.
   #

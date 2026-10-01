@@ -33,7 +33,7 @@ The cost was never the types. It was `evalModules`.
 **One type language, `T` everywhere.** Zero measurable gain, and it would
 mean re-implementing a chunk of `lib.types` to reach parity. Two languages
 stay, and `docs/floe-api.md` says why: `T` exists for what it can express —
-`T.runtime`, `T.derivedFrom`, sealing that drops rather than errors — not
+`T.deferred`, `T.derivedFrom`, sealing that drops rather than errors — not
 because it is faster. It is not.
 
 **Collapse `inputs` into `requires`, with the deployer as a provider.** One
