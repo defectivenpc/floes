@@ -75,13 +75,33 @@ annotation, a file and an HTTP lookup are five mechanisms for one job.
 `testABackendCanCloseTheLoop` does the substitution in a test, which is the
 proof the site list is enough to write a real backend against.
 
-Worth noticing that the NixOS link has **zero** sites. Nothing there puts
-the secret in config, because `DATABASE` offers `passwordFile` beside
-`password` and a systemd unit takes the path — and putting the value itself
-in config is exactly what [`nixos/broken.nix`](nixos/broken.nix)
-demonstrates as a mistake. So the two examples show both halves: Kubernetes
-renders a value into a manifest and needs a backend, NixOS hands over a path
-and needs nobody.
+Worth noticing that the NixOS link has **zero** sites, because nothing there
+puts the secret in config: `DATABASE` offers `passwordFile` beside
+`password`, a systemd unit takes the path, and putting the value itself in
+config is exactly what [`nixos/broken.nix`](nixos/broken.nix) demonstrates
+as a mistake.
+
+The chain that replaces a site is built out rather than implied. `postgres`
+generates the file in its own `ExecStartPre` — idempotent, 0600, in its
+per-instance state directory rather than a `/run/secrets` two instances
+would contend for. A consumer mounts it with `LoadCredential`, which systemd
+reads as root before dropping to the dynamic user. And the consumer's
+`ExecStart` reads `$CREDENTIALS_DIRECTORY/dbpw` where the password is
+actually needed. The secret appears in no unit, no environment variable and
+nothing in the Nix store — the only thing eval ever saw was a path.
+
+`testTheSecretChainCloses` ties those three paths together, because none of
+it held until recently: `passwordFile` was a path nothing created, mounted
+by consumers that never read it. A path that does not exist at runtime
+type-checks perfectly well as NixOS config, so the `nixosSystem` check could
+not have caught that and still cannot. Only a VM test would — a limit worth
+knowing rather than one worth chasing here.
+
+So the two examples show both halves: Kubernetes renders a value into a
+manifest and needs a backend; NixOS hands over a path and needs a
+**provisioning step**, which is a real cost rather than a free lunch. In
+production that step is sops-nix, agenix or `systemd-creds` instead of this
+one's `head -c 32 /dev/urandom`.
 [ADR 0005](../docs/adr/0005-the-provider-declares-the-retrieval.md).
 
 **Four collisions are refused, each by whoever owns the namespace.** Two

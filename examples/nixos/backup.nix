@@ -63,10 +63,21 @@ floe.mkFloe {
           serviceConfig = {
             Type = "oneshot";
             DynamicUser = "true";
-            # The path, never the secret: `db.password` is deferred and would
-            # be an eval error here.
+
+            # The path, never the secret: `db.password` is deferred and would be an
+            # eval error here. systemd reads the file as root before dropping to
+            # the dynamic user, which is why 0600-owned-by-postgres is readable.
             LoadCredential = "dbpw:${db.passwordFile}";
-            ExecStart = "/run/current-system/sw/bin/pg_dump -h ${db.host} -p ${toString db.port}";
+
+            # And it is actually read. `$CREDENTIALS_DIRECTORY` is where systemd
+            # put it; pg_dump takes the password from PGPASSWORD. This is the whole
+            # chain closed: postgres writes the file, systemd carries it, pg_dump
+            # consumes it, and no floe ever held the secret at eval time.
+            ExecStart =
+              "/run/current-system/sw/bin/sh -c '"
+              + "PGPASSWORD=$(cat \"$CREDENTIALS_DIRECTORY/dbpw\") "
+              + "/run/current-system/sw/bin/pg_dump -h ${db.host} -p ${toString db.port} webapp"
+              + "'";
           };
         };
         timers.${inst} = {

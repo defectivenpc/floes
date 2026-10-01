@@ -176,13 +176,18 @@ lib.runTests {
       in
       lib.sort (a: b: a < b) (
         lib.concatMap (
-          u: lib.mapAttrsToList (_: v: v.serviceConfig.ExecStart) (f.${u}.systemd.services or { })
+          u:
+          lib.mapAttrsToList (
+            # The port each backup dumps, read out of its command line. Pinning
+            # the whole string would make this a test of shell quoting.
+            _: v: lib.head (lib.match ".*-p ([0-9]+).*" v.serviceConfig.ExecStart)
+          ) (f.${u}.systemd.services or { })
         ) (lib.filter (lib.hasPrefix "backup-") (lib.attrNames f))
       );
     expected = [
-      "/run/current-system/sw/bin/pg_dump -h 127.0.0.1 -p 5432"
-      "/run/current-system/sw/bin/pg_dump -h 127.0.0.1 -p 5433"
-      "/run/current-system/sw/bin/pg_dump -h 127.0.0.1 -p 5434"
+      "5432"
+      "5433"
+      "5434"
     ];
   };
 
@@ -372,6 +377,73 @@ lib.runTests {
   # question 1 — deferred transparency in interpolation — and it is pinned in
   # `examples/refuse.sh`, where a non-zero exit is the assertion.
 
+  # ---- The secret chain, end to end -------------------------------------
+  #
+  # This is the test the example needed and did not have. `passwordFile` used to
+  # be a path postgres invented and nothing created, while the consumers mounted
+  # it with `LoadCredential` and then never read it — every link declared, none
+  # connected. On a real system both consumers would have failed to start, and
+  # nothing here would have noticed, because a path that does not exist at
+  # runtime type-checks perfectly well as NixOS config.
+  #
+  # So: one floe writes the file, systemd carries it, the consumers read it, and
+  # these assertions tie the three paths together.
+  testTheSecretChainCloses = {
+    expr =
+      let
+        f = nixos.link.out."nixos.config";
+        pgUnit = f.main.systemd.services."postgres-main";
+        webappUnit = f.webapp.systemd.services.webapp;
+
+        # Where postgres says the secret will be, and where it actually writes it.
+        declared = nixos.link.provides.main.database.passwordFile;
+        writesIt =
+          lib.match ".*> (${lib.escapeRegex declared}).*" pgUnit.serviceConfig.ExecStartPre != null;
+
+        # Where the consumer mounts it from.
+        mountsIt = webappUnit.serviceConfig.LoadCredential == "dbpw:${declared}";
+
+        # And that the consumer reads what systemd handed it, rather than
+        # mounting a credential and ignoring it.
+        readsIt = lib.hasInfix "CREDENTIALS_DIRECTORY/dbpw" webappUnit.serviceConfig.ExecStart;
+
+        # The secret itself appears nowhere in the config. The whole point.
+        noSecretInConfig = !(lib.hasInfix "PGPASSWORD=" (webappUnit.environment.DATABASE_URL or ""));
+      in
+      {
+        inherit
+          writesIt
+          mountsIt
+          readsIt
+          noSecretInConfig
+          ;
+        # And the deferred value is still a token, unreadable at eval, even though
+        # the path beside it is perfectly concrete.
+        valueStillDeferred = floe.isDeferredToken nixos.link.provides.main.database.password;
+      };
+    expected = {
+      writesIt = true;
+      mountsIt = true;
+      readsIt = true;
+      noSecretInConfig = true;
+      valueStillDeferred = true;
+    };
+  };
+
+  # Two instances, two files, and neither contends for a path. `/run/secrets`
+  # shared between them would have — this lives in each instance's own state
+  # directory, which it already had to have.
+  testEachInstanceOwnsItsSecret = {
+    expr = lib.sort (a: b: a < b) [
+      nixos.link.provides.main.database.passwordFile
+      nixos.link.provides.analytics.database.passwordFile
+    ];
+    expected = [
+      "/var/lib/postgres-analytics/password"
+      "/var/lib/postgres-main/password"
+    ];
+  };
+
   # ---- Deferred values, and what a backend does with them ----------------
 
   # The two examples declare the *same* kind of value — one that does not exist
@@ -412,7 +484,7 @@ lib.runTests {
     expected = {
       k8s = 1;
       nixos = 0;
-      webappUsesThePath = "dbpw:/run/secrets/postgres-main-password";
+      webappUsesThePath = "dbpw:/var/lib/postgres-main/password";
     };
   };
 

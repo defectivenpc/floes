@@ -92,8 +92,9 @@ floe.mkFloe {
 
         environment = {
           # `db.password` would be an eval error here: it is deferred, and a
-          # systemd environment value is a string. The *path* is what a unit
-          # can be given at eval, and the secret arrives at start.
+          # systemd environment value is a string. The *path* is what a unit can
+          # be given at eval, and the secret arrives at start — which is why this
+          # URL carries no credential.
           DATABASE_URL = "postgresql://${db.host}:${toString db.port}/webapp";
           PUBLIC_URL = "${proxy.scheme}://${host}";
           LISTEN_PORT = toString port;
@@ -101,8 +102,18 @@ floe.mkFloe {
 
         serviceConfig = {
           DynamicUser = "true";
+
+          # systemd reads the file as root — before dropping to the dynamic user —
+          # so a 0600 file owned by the postgres instance is still readable here.
           LoadCredential = "dbpw:${db.passwordFile}";
-          ExecStart = "/usr/bin/env webapp";
+
+          # And it is read, where the password is actually needed. The secret
+          # never appears in the unit, the environment, or the Nix store: the only
+          # thing eval ever saw was a path.
+          ExecStart =
+            "/run/current-system/sw/bin/sh -c '"
+            + ''PGPASSWORD=$(cat "$CREDENTIALS_DIRECTORY/dbpw") ''
+            + "exec /run/current-system/sw/bin/webapp'";
         };
       };
     };
