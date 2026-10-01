@@ -14,6 +14,7 @@
 ```bash
 nix flake check          # both links, each also evaluated as a real NixOS system
 ./examples/refuse.sh     # the one failure no Nix test can hold
+./examples/shell-check.sh # what the emitted shell actually does
 ./bench/run.sh           # per-floe cost, by body weight and body form
 ```
 
@@ -75,34 +76,64 @@ annotation, a file and an HTTP lookup are five mechanisms for one job.
 `testABackendCanCloseTheLoop` does the substitution in a test, which is the
 proof the site list is enough to write a real backend against.
 
-Worth noticing that the NixOS link has **zero** sites, because nothing there
-puts the secret in config: `DATABASE` offers `passwordFile` beside
-`password`, a systemd unit takes the path, and putting the value itself in
-config is exactly what [`nixos/broken.nix`](nixos/broken.nix) demonstrates
-as a mistake.
+**A collection provisioning per-consumer secrets, which is this example's
+own thing.** Postgres cannot know its consumers at author time, so it
+`collects` a `DB_ROLE_CLAIM` and provisions one role, one database and one
+credential per claimant. Two hooks, because the prerequisites differ: the
+credentials before the server starts, so a consumer's unit can mount them;
+the roles after, because a role cannot be created before the server accepts
+connections. Neither the role name nor the database name is written by a
+deployer — both are the claimant's own unit name.
 
-The chain that replaces a site is built out rather than implied. `postgres`
-generates the file in its own `ExecStartPre` — idempotent, 0600, in its
-per-instance state directory rather than a `/run/secrets` two instances
-would contend for. A consumer mounts it with `LoadCredential`, which systemd
-reads as root before dropping to the dynamic user. And the consumer's
-`ExecStart` reads `$CREDENTIALS_DIRECTORY/dbpw` where the password is
-actually needed. The secret appears in no unit, no environment variable and
-nothing in the Nix store — the only thing eval ever saw was a path.
+In the fleet that is 20 workloads × 3 databases, and the credential a
+workload mounts is its own: `dbpw:/var/lib/postgres-main/credentials/app1`,
+not a secret shared by 23 consumers. `backup` meanwhile claims _no_ role and
+takes the superuser credential, because it dumps the whole server — the
+other half of the fan-in story, that not every consumer of a signature
+contributes to its collection.
 
-`testTheSecretChainCloses` ties those three paths together, because none of
-it held until recently: `passwordFile` was a path nothing created, mounted
-by consumers that never read it. A path that does not exist at runtime
-type-checks perfectly well as NixOS config, so the `nixosSystem` check could
-not have caught that and still cannot. Only a VM test would — a limit worth
-knowing rather than one worth chasing here.
+**Where a per-consumer value cannot go, and why.** A provide is one value
+for every consumer, so a per-claimant _secret_ would have to be a map keyed
+by unit — and that map is derived from the claim collection, so a claimant
+reading it is a cycle through the fold. `T.derivedFrom` would refuse it,
+correctly. A directory plus the consumer's own name is what is left. There
+is a second, sharper reason: `mkDeferred` binds `source` to the unit whose
+body calls it, so only a provider can mint a token for its own value — a
+consumer cannot construct one pointing at its provider, which is right,
+since provenance would otherwise be a claim the claimant makes about someone
+else.
 
-So the two examples show both halves: Kubernetes renders a value into a
-manifest and needs a backend; NixOS hands over a path and needs a
-**provisioning step**, which is a real cost rather than a free lunch. In
-production that step is sops-nix, agenix or `systemd-creds` instead of this
-one's `head -c 32 /dev/urandom`.
+So the deferred half lands on the _superuser_ password, which is genuinely
+one per instance. `superuserPasswordFile` for a consumer that passes it to a
+process; the deferred value for one that must render it where a credential
+cannot reach, with the retrieval saying where a backend would read it.
+
+Worth noticing that the NixOS link has **zero** deferred sites even so,
+because nothing there renders a secret into config — and putting the value
+itself in config is exactly what [`nixos/broken.nix`](nixos/broken.nix)
+demonstrates as a mistake. So the two examples show both halves: Kubernetes
+renders a value into a manifest and needs a backend; NixOS hands over a path
+and needs a **provisioning step**, which is a real cost rather than a free
+lunch. In production that step is sops-nix, agenix or `systemd-creds`
+instead of this one's `head -c 32 /dev/urandom`.
 [ADR 0005](../docs/adr/0005-the-provider-declares-the-retrieval.md).
+
+**And one bug class no Nix check can see.** `postgres.nix` emits its
+provisioning as shell _strings_, which is forced: a floe's output must be
+inert data, so it cannot build a script derivation. Every check here passes
+on a string that parses as some shell, and `nixosSystem` accepts any string
+at all. The first version of this SQL was syntactically valid and
+semantically wrong —
+
+```
+CREATE ROLE webapp LOGIN PASSWORD SECRET      # no quotes; invalid SQL
+```
+
+— because the outer `sh -c '…'` had consumed the quotes.
+`./examples/shell-check.sh` runs the emitted command with fake binaries on
+`PATH` and asserts what `psql` actually receives. It is the only check in
+the repo that would have caught it, and re-introducing the bug makes it
+fail.
 
 **Four collisions are refused, each by whoever owns the namespace.** Two
 providers of one signature; two instances claiming one port; two workloads

@@ -42,6 +42,10 @@ floe.mkFloe {
   provides = {
     route = sigs.ROUTE_CLAIM;
     scrape = sigs.SCRAPE_TARGET;
+    # Asks the database for a role of its own. Postgres collects these and
+    # provisions one role, one database and one credential per claimant — so no
+    # deployer writes a role name, and twenty workloads get twenty credentials.
+    dbRole = sigs.DB_ROLE_CLAIM;
   };
 
   out.nixosConfig = kinds.nixosConfig (
@@ -80,6 +84,12 @@ floe.mkFloe {
     in
     {
       provides.route = { inherit subdomain port; };
+
+      # One database per workload, named for it. The role postgres creates is this
+      # unit's name, so neither is a string a deployer had to invent or keep
+      # unique.
+      provides.dbRole.database = inst;
+
       provides.scrape = {
         inherit port;
         path = "/metrics";
@@ -95,7 +105,9 @@ floe.mkFloe {
           # systemd environment value is a string. The *path* is what a unit can
           # be given at eval, and the secret arrives at start — which is why this
           # URL carries no credential.
-          DATABASE_URL = "postgresql://${db.host}:${toString db.port}/webapp";
+          # The role and the database are both this unit's name, which is what
+          # was claimed. No string the signature did not promise.
+          DATABASE_URL = "postgresql://${inst}@${db.host}:${toString db.port}/${inst}";
           PUBLIC_URL = "${proxy.scheme}://${host}";
           LISTEN_PORT = toString port;
         };
@@ -103,9 +115,13 @@ floe.mkFloe {
         serviceConfig = {
           DynamicUser = "true";
 
-          # systemd reads the file as root — before dropping to the dynamic user —
-          # so a 0600 file owned by the postgres instance is still readable here.
-          LoadCredential = "dbpw:${db.passwordFile}";
+          # This workload's *own* credential, at the directory the signature
+          # promised joined with the name it already knows. Not a shared secret:
+          # twenty workloads read twenty files.
+          #
+          # systemd reads it as root — before dropping to the dynamic user — so a
+          # 0600 file owned by the postgres instance is still readable here.
+          LoadCredential = "dbpw:${db.credentialDir}/${inst}";
 
           # And it is read, where the password is actually needed. The secret
           # never appears in the unit, the environment, or the Nix store: the only

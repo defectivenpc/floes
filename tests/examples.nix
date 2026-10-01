@@ -98,7 +98,9 @@ lib.runTests {
       ];
       dataDirs = [
         "d /var/lib/postgres-analytics 0700 postgres-analytics postgres-analytics - -"
+        "d /var/lib/postgres-analytics/credentials 0700 postgres-analytics postgres-analytics - -"
         "d /var/lib/postgres-main 0700 postgres-main postgres-main - -"
+        "d /var/lib/postgres-main/credentials 0700 postgres-main postgres-main - -"
       ];
     };
   };
@@ -134,10 +136,11 @@ lib.runTests {
   testSealingOmitsWhatTheSignatureDoesNotPromise = {
     expr = lib.attrNames nixos.link.provides.main.database;
     expected = [
+      "credentialDir"
       "host"
-      "password"
-      "passwordFile"
       "port"
+      "superuserPassword"
+      "superuserPasswordFile"
     ];
   };
 
@@ -263,7 +266,9 @@ lib.runTests {
         5434
         9090
       ];
-      edges = 90;
+      # Three postgres instances each collecting DB_ROLE_CLAIM from all twenty
+      # workloads is sixty of these on its own.
+      edges = 150;
     };
   };
 
@@ -379,68 +384,139 @@ lib.runTests {
 
   # ---- The secret chain, end to end -------------------------------------
   #
-  # This is the test the example needed and did not have. `passwordFile` used to
-  # be a path postgres invented and nothing created, while the consumers mounted
-  # it with `LoadCredential` and then never read it — every link declared, none
-  # connected. On a real system both consumers would have failed to start, and
-  # nothing here would have noticed, because a path that does not exist at
-  # runtime type-checks perfectly well as NixOS config.
+  # The distinctive bit of this example, and the thing no other one does: a
+  # collection coordinating with a deferred value. Postgres cannot know its
+  # consumers, so it collects what they ask for and provisions a role, a database
+  # and a credential per claimant — at apply time, which is why the secret is
+  # deferred at all.
   #
-  # So: one floe writes the file, systemd carries it, the consumers read it, and
-  # these assertions tie the three paths together.
-  testTheSecretChainCloses = {
+  # These used to be a path postgres invented and nothing created, mounted by
+  # consumers that never read it. Every link declared, none connected.
+
+  # One credential per claimant, not one shared by everyone. Twenty fleet
+  # workloads get twenty files, and neither the role name nor the database name
+  # was written by a deployer — both are the claimant's own unit name.
+  testEachClaimantGetsItsOwnCredential = {
     expr =
       let
-        f = nixos.link.out."nixos.config";
-        pgUnit = f.main.systemd.services."postgres-main";
-        webappUnit = f.webapp.systemd.services.webapp;
-
-        # Where postgres says the secret will be, and where it actually writes it.
-        declared = nixos.link.provides.main.database.passwordFile;
-        writesIt =
-          lib.match ".*> (${lib.escapeRegex declared}).*" pgUnit.serviceConfig.ExecStartPre != null;
-
-        # Where the consumer mounts it from.
-        mountsIt = webappUnit.serviceConfig.LoadCredential == "dbpw:${declared}";
-
-        # And that the consumer reads what systemd handed it, rather than
-        # mounting a credential and ignoring it.
-        readsIt = lib.hasInfix "CREDENTIALS_DIRECTORY/dbpw" webappUnit.serviceConfig.ExecStart;
-
-        # The secret itself appears nowhere in the config. The whole point.
-        noSecretInConfig = !(lib.hasInfix "PGPASSWORD=" (webappUnit.environment.DATABASE_URL or ""));
+        f = nixos.fleet.out."nixos.config";
+        pg = f.main.systemd.services."postgres-main".serviceConfig;
+        # Which workloads claimed a role from `main`, read off the credentials it
+        # generates.
+        generated = lib.sort (a: b: a < b) (
+          map (m: lib.head m) (
+            lib.filter (m: m != null) (
+              map (w: builtins.match ".*(/var/lib/postgres-main/credentials/${w}).*" pg.ExecStartPre) [
+                "app1"
+                "app4"
+                "app7"
+              ]
+            )
+          )
+        );
       in
       {
-        inherit
-          writesIt
-          mountsIt
-          readsIt
-          noSecretInConfig
-          ;
-        # And the deferred value is still a token, unreadable at eval, even though
-        # the path beside it is perfectly concrete.
-        valueStillDeferred = floe.isDeferredToken nixos.link.provides.main.database.password;
+        inherit generated;
+        # app1 mounts exactly the file postgres generated for app1.
+        app1Mounts = f.app1.systemd.services.app1.serviceConfig.LoadCredential;
+        # And a different workload mounts a different one.
+        app4Mounts = f.app4.systemd.services.app4.serviceConfig.LoadCredential;
       };
     expected = {
-      writesIt = true;
-      mountsIt = true;
-      readsIt = true;
-      noSecretInConfig = true;
-      valueStillDeferred = true;
+      generated = [
+        "/var/lib/postgres-main/credentials/app1"
+        "/var/lib/postgres-main/credentials/app4"
+        "/var/lib/postgres-main/credentials/app7"
+      ];
+      app1Mounts = "dbpw:/var/lib/postgres-main/credentials/app1";
+      app4Mounts = "dbpw:/var/lib/postgres-main/credentials/app4";
     };
   };
 
-  # Two instances, two files, and neither contends for a path. `/run/secrets`
-  # shared between them would have — this lives in each instance's own state
-  # directory, which it already had to have.
-  testEachInstanceOwnsItsSecret = {
+  # The roles themselves are created after the server starts, because a role
+  # cannot be created before it accepts connections. Two hooks for two different
+  # prerequisites — and the content of both came from the collection, so no
+  # deployer wrote a role name anywhere.
+  testRolesAreProvisionedFromTheCollection = {
+    expr =
+      let
+        pg = nixos.link.out."nixos.config".main.systemd.services."postgres-main".serviceConfig;
+      in
+      {
+        # The small link has one claimant: webapp.
+        createsTheRole = lib.hasInfix "CREATE ROLE webapp" pg.ExecStartPost;
+        createsTheDatabase = lib.hasInfix "CREATE DATABASE webapp OWNER webapp" pg.ExecStartPost;
+        # Idempotent: a restart must not fail, and must not rotate a password a
+        # consumer is already using.
+        #
+        # Matched without the quotes, because at this level the string still holds
+        # the shell escape `'\''` rather than what a shell will make of it. What
+        # the SQL *becomes* is `examples/shell-check.sh`'s job, and has to be —
+        # nothing in a Nix evaluation can see through `sh -c`.
+        guardedOnExisting = lib.hasInfix "FROM pg_roles WHERE rolname=" pg.ExecStartPost;
+        generatesBeforeStarting = lib.hasInfix "credentials/webapp" pg.ExecStartPre;
+      };
+    expected = {
+      createsTheRole = true;
+      createsTheDatabase = true;
+      guardedOnExisting = true;
+      generatesBeforeStarting = true;
+    };
+  };
+
+  # Not every consumer of DATABASE claims a role. A backup dumps the whole
+  # server, so it takes the superuser credential and contributes nothing to the
+  # collection — which is the other half of the fan-in story.
+  testAConsumerMayTakeTheSuperuserAndClaimNothing = {
+    expr =
+      let
+        f = nixos.fleet.out."nixos.config";
+        b = f."backup-main".systemd.services."backup-main".serviceConfig;
+      in
+      {
+        mountsSuperuser = b.LoadCredential;
+        dumpsEverything = lib.hasInfix "pg_dumpall" b.ExecStart;
+        claimsNoRole = !((nixos.floes.backup.provides or { }) ? dbRole);
+      };
+    expected = {
+      mountsSuperuser = "dbpw:/var/lib/postgres-main/superuser-password";
+      dumpsEverything = true;
+      claimsNoRole = true;
+    };
+  };
+
+  # And the chain closes: the credential a consumer mounts is read where the
+  # password is needed, and the secret appears in no unit, no environment value
+  # and nothing in the Nix store. The only thing eval ever saw was a path.
+  testTheSecretIsReadAndNeverRendered = {
+    expr =
+      let
+        w = nixos.link.out."nixos.config".webapp.systemd.services.webapp;
+      in
+      {
+        readsWhatSystemdGave = lib.hasInfix "CREDENTIALS_DIRECTORY/dbpw" w.serviceConfig.ExecStart;
+        urlCarriesNoSecret = w.environment.DATABASE_URL;
+        # The deferred half is still an unreadable token, beside a path that is
+        # perfectly concrete.
+        superuserValueStillDeferred = floe.isDeferredToken nixos.link.provides.main.database.superuserPassword;
+      };
+    expected = {
+      readsWhatSystemdGave = true;
+      urlCarriesNoSecret = "postgresql://webapp@127.0.0.1:5432/webapp";
+      superuserValueStillDeferred = true;
+    };
+  };
+
+  # Two instances, two credential directories, no contention. A shared
+  # `/run/secrets` would have had both writing one path.
+  testEachInstanceOwnsItsSecrets = {
     expr = lib.sort (a: b: a < b) [
-      nixos.link.provides.main.database.passwordFile
-      nixos.link.provides.analytics.database.passwordFile
+      nixos.link.provides.main.database.credentialDir
+      nixos.link.provides.analytics.database.credentialDir
     ];
     expected = [
-      "/var/lib/postgres-analytics/password"
-      "/var/lib/postgres-main/password"
+      "/var/lib/postgres-analytics/credentials"
+      "/var/lib/postgres-main/credentials"
     ];
   };
 
@@ -455,7 +531,7 @@ lib.runTests {
   testOneTypeTwoMechanisms = {
     expr = {
       k8sRetrieval = (lib.head (lib.attrValues k8s.link.provides.cert-manager)).caFingerprint.retrieval;
-      nixosRetrieval = nixos.link.provides.main.database.password.retrieval;
+      nixosRetrieval = nixos.link.provides.main.database.superuserPassword.retrieval;
     };
     expected = {
       k8sRetrieval = "k8s.secretRef";
@@ -477,14 +553,15 @@ lib.runTests {
     expr = {
       k8s = lib.length k8s.link.deferredSites;
       nixos = lib.length nixos.link.deferredSites;
-      # The concrete alternative the NixOS consumers actually use.
+      # The concrete alternative the NixOS consumers actually use — and it is
+      # per-claimant, not one secret shared by all of them.
       webappUsesThePath =
         nixos.link.out."nixos.config".webapp.systemd.services.webapp.serviceConfig.LoadCredential;
     };
     expected = {
       k8s = 1;
       nixos = 0;
-      webappUsesThePath = "dbpw:/var/lib/postgres-main/password";
+      webappUsesThePath = "dbpw:/var/lib/postgres-main/credentials/webapp";
     };
   };
 

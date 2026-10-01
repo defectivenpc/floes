@@ -59,15 +59,21 @@ floe.mkFloe {
     {
       out.nixosConfig.systemd = {
         services.${inst} = {
-          description = "Dump ${toString db.host}:${toString db.port} nightly";
+          description = "Dump every database on ${toString db.host}:${toString db.port} nightly";
           serviceConfig = {
             Type = "oneshot";
             DynamicUser = "true";
 
-            # The path, never the secret: `db.password` is deferred and would be an
-            # eval error here. systemd reads the file as root before dropping to
-            # the dynamic user, which is why 0600-owned-by-postgres is readable.
-            LoadCredential = "dbpw:${db.passwordFile}";
+            # The *superuser* credential, because a backup dumps the whole server
+            # rather than one database — so this consumer claims no role, which is
+            # the other half of the collection story: not every consumer of
+            # DATABASE contributes to it.
+            #
+            # The path, never the secret: `db.superuserPassword` is deferred and
+            # would be an eval error here. systemd reads the file as root before
+            # dropping to the dynamic user, which is why 0600-owned-by-postgres is
+            # readable.
+            LoadCredential = "dbpw:${db.superuserPasswordFile}";
 
             # And it is actually read. `$CREDENTIALS_DIRECTORY` is where systemd
             # put it; pg_dump takes the password from PGPASSWORD. This is the whole
@@ -76,7 +82,7 @@ floe.mkFloe {
             ExecStart =
               "/run/current-system/sw/bin/sh -c '"
               + "PGPASSWORD=$(cat \"$CREDENTIALS_DIRECTORY/dbpw\") "
-              + "/run/current-system/sw/bin/pg_dump -h ${db.host} -p ${toString db.port} webapp"
+              + "/run/current-system/sw/bin/pg_dumpall -h ${db.host} -p ${toString db.port}"
               + "'";
           };
         };

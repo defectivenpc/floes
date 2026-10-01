@@ -67,7 +67,7 @@ in
         { config, ... }:
         {
           config.floe.out.nixosConfig.systemd.services.leaky.environment.DB_PASSWORD =
-            config.floe.requires.database.password;
+            config.floe.requires.database.superuserPassword;
         }
       )
     ];
@@ -104,7 +104,7 @@ in
         in
         {
           config.floe.out.nixosConfig.systemd.services.interpolating.environment.DATABASE_URL =
-            "postgresql://webapp:${db.password}@${db.host}:${toString db.port}/webapp";
+            "postgresql://admin:${db.superuserPassword}@${db.host}:${toString db.port}/app";
         }
       )
     ];

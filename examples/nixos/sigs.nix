@@ -27,6 +27,16 @@ rec {
     # so the owner already knows who claimed what and its errors can say so.
   };
 
+  DB_ROLE_CLAIM = floe.mkSig {
+    name = "DB_ROLE_CLAIM";
+    canonicalName = "dbRole";
+    description = "A database a workload wants provisioned, with a role of its own to reach it.";
+    shape = T.record { database = T.str; };
+    # No role name: the role is the claimant's unit name, which is unique in the
+    # link by construction. Same reasoning as a workload's subdomain — a name the
+    # deployer would otherwise have to invent and keep unique by hand.
+  };
+
   SCRAPE_TARGET = floe.mkSig {
     name = "SCRAPE_TARGET";
     canonicalName = "scrape";
@@ -100,14 +110,28 @@ rec {
       host = T.str;
       port = T.port;
 
-      # Concrete: the *path* is decided at eval even though the secret is not.
-      passwordFile = T.str;
+      # Where per-consumer credentials live. A claimant reads
+      # `${credentialDir}/${floe.name}` — its own role's password, written by the
+      # provider when it provisioned that role.
+      #
+      # A directory and a convention rather than a checked map, and that is forced
+      # rather than chosen. The obvious design — `credentials` as an attrset keyed
+      # by unit, so a consumer reads `db.credentials.<me>` — is derived from the
+      # DB_ROLE_CLAIM collection, so a claimant reading it would be a cycle through
+      # the fold. `T.derivedFrom` would refuse it, correctly. The directory is what
+      # is left, and it works because a consumer already knows its own name.
+      credentialDir = T.str;
 
-      # The secret itself, which does not exist until the service has started
-      # and generated it. A consumer that interpolates this into NixOS config
-      # gets a type error from the linker naming postgres as the source, rather
-      # than an attrset where NixOS wanted a string.
-      password = T.deferred T.str;
+      # The instance's own superuser credential, for a consumer that needs the
+      # whole server rather than one database — a backup, a migration runner.
+      # Not per-consumer, so this one *can* be a single field.
+      superuserPasswordFile = T.str;
+
+      # And the secret itself, which does not exist until the server has started
+      # and generated it. A consumer that interpolates this into NixOS config gets
+      # an eval error naming this instance as the source — and with two instances,
+      # naming *which* one.
+      superuserPassword = T.deferred T.str;
     };
 
     # Deliberately absent: `dataDir`. Postgres knows it, and in stock NixOS
@@ -116,6 +140,12 @@ rec {
     # the signature a conversation, instead of a coupling nobody declared.
     # In this way we can guard and direct API design of floes so external parties
     # can depend on it, or participate in designing it through a conversation.
+    #
+    # Note what sealing cannot do, which the consumers used to demonstrate by
+    # accident: it stops a consumer reading an *undeclared field*, not a consumer
+    # hardcoding a string. Both consumers once wrote `/webapp` as the database
+    # name, a fact this signature never promised — so the database a claimant gets
+    # is now in DB_ROLE_CLAIM, where it is declared and checked.
   };
 
   REVERSE_PROXY = floe.mkSig {
