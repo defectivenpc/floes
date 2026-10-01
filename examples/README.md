@@ -55,6 +55,35 @@ resolves both. This is the half of NixOS's recursion problem floe does solve
 promise it, so nothing can read it. In stock NixOS that read is one
 attribute away and nobody declared it.
 
+**A value that does not exist yet is refused at eval — and the loop
+closes.** Postgres's password is `T.runtime`: put it where NixOS config
+wants a string and the linker says so, naming the floe it came from, instead
+of NixOS reporting an attrset where it wanted text some frames later.
+
+That is half of it. The _provider_ also declares a **retrieval** — an
+ordinary signature saying where the value will be readable once it exists —
+so something can eventually fill it in. Postgres declares `nixos.fileRef`;
+cert-manager in the k8s example declares `k8s.secretRef`. The same
+`T.runtime T.str` on both sides, two mechanisms with nothing in common,
+which works only because the provider declares the retrieval and not the
+signature's field.
+
+Core never learns what a Secret is. It exposes `link.runtimeSites` — one
+entry per token that reached output, saying what to read and where to write
+it — and ships no substitution function, because a ConfigMap, a Secret, an
+annotation, a file and an HTTP lookup are five mechanisms for one job.
+`testABackendCanCloseTheLoop` does the substitution in a test, which is the
+proof the site list is enough to write a real backend against.
+
+Worth noticing that the NixOS link has **zero** sites. Nothing there puts
+the secret in config, because `DATABASE` offers `passwordFile` beside
+`password` and a systemd unit takes the path — and putting the value itself
+in config is exactly what [`nixos/broken.nix`](nixos/broken.nix)
+demonstrates as a mistake. So the two examples show both halves: Kubernetes
+renders a value into a manifest and needs a backend, NixOS hands over a path
+and needs nobody.
+[ADR 0005](../docs/adr/0005-the-provider-declares-the-retrieval.md).
+
 **Four collisions are refused, each by whoever owns the namespace.** Two
 providers of one signature; two instances claiming one port; two workloads
 claiming one hostname; two instances of a floe that writes fixed paths. The
