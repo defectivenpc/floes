@@ -5,47 +5,51 @@
 distribution
 
 > **What shipped, and what did not.** The core is built:
-> `lib/floe-core/{floe,link,interfaces,types}.nix`. Five named deliverables
-> in §8 were **abandoned by design**, not left pending, and the reasons are
-> worth knowing before reading them as a to-do list:
+> `lib/{floe,link,interfaces,types}.nix`, extracted into its own repository.
+> Five named deliverables in §8 were **abandoned by design**, not left
+> pending, and the reasons are worth knowing before reading them as a to-do
+> list:
 >
-> | §8 item                   | What happened                                                                                                                                                                                                                                                    |
-> | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-> | `signatureOptions` (§4.4) | Never built. Conformance is checked **once**, at link (`link.nix` `sealSig` → `types.checkValue`), not twice. The "two schema layers" drawback in §5 therefore does not exist.                                                                                   |
-> | `checkFloe` (§4.9)        | Never built. Replaced by `floes/tests/support.nix`: a stub floe per signature, linked _and elaborated_, so a suite exercises the real linker rather than an approximation. One suite per floe, enforced 1:1 by `nix/checks/lib-tests.nix`.                       |
-> | `mkHelmFloe` (§4.5)       | Never built, and unbuildable as specified — it wires `out.k8s.helmRelease`, a kind this distribution does not have. The sugar that exists is `catallaxy.mkComponentFloe`, which defaults `requires.cluster` and `out.component` and does nothing chart-specific. |
-> | Hole renaming (§3.2, §6)  | **Built**, as `instance.bind { <hole> = "<unit>"; }`. Resolution is still by signature name; a binding narrows the candidates before the arity rule applies, and is the deployer's because a floe does not know its peers' names.                                |
-> | `T.template` (§3.1, §7)   | Never built.                                                                                                                                                                                                                                                     |
+> | §8 item                   | What happened                                                                                                                                                                                                                                                                                  |
+> | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+> | `signatureOptions` (§4.4) | Never built. Conformance is checked **once**, at link (`link.nix` `sealSig` → `types.checkValue`), not twice. The "two schema layers" drawback in §5 therefore does not exist.                                                                                                                 |
+> | `checkFloe` (§4.9)        | Never built. Replaced by linking against stubs, so a suite exercises the real linker rather than an approximation. Core ships `T.stubFor`, which derives a stub _value_ from a signature; the stub floe and the harness stay in the distribution, where catallaxy enforces one suite per floe. |
+> | `mkHelmFloe` (§4.5)       | Never built, and unbuildable as specified — it wires `out.k8s.helmRelease`, a kind this distribution does not have. The sugar that exists is `catallaxy.mkComponentFloe`, which defaults `requires.cluster` and `out.component` and does nothing chart-specific.                               |
+> | Hole renaming (§3.2, §6)  | **Built**, as `instance.bind { <hole> = "<unit>"; }`. Resolution is still by signature name; a binding narrows the candidates before the arity rule applies, and is the deployer's because a floe does not know its peers' names.                                                              |
+> | `T.template` (§3.1, §7)   | Never built, and the only §7 question still open. `collects` took half of what it was for and retrieval signatures took the other half; §7.5 records what is left and why it stays unspecified.                                                                                                |
 >
 > **Where the words come from.** This RFC does not say so, and it is the
 > single most explanatory fact about the design: the model is Haskell's
 > Backpack — signatures, holes, mixin linking, instantiation — applied to
 > NixOS modules, with sealing from ML. The mapping, and why the rules follow
-> from it, is in the book's [The Model](../book/src/understanding/model.md).
+> from it, is in [The Model](../model.md).
 >
 > Other drift a reader should know about:
 >
 > - **`requiresMany` is gone**, replaced by `requiresOptional`
 >   (zero-or-one). It carried no ordering edge, and it implied only the floe
 >   installing a capability could render resources using it — which is not
->   how Kubernetes works. `lib/floe-core/floe.nix` records the argument.
->   **Amended: a fan-in arity is back, as `collects`, and the first half of
->   that argument no longer holds** — a collection carries one eval edge per
->   contributor. The second half stands and is why it is narrow: where a
->   runtime aggregator exists, a consumer rendering its own resource is
->   still the better answer, and nothing in this distribution was converted.
->   §4.6's "collection is keyed by unit name and therefore disjoint" now
->   describes the requires side as well as `out`, and §6's rejection of
->   monoidal merge is unaffected — a collection is folded by its consumer,
->   never merged by the linker. See ADR 0003.
+>   how Kubernetes works. `lib/floe.nix` records the argument. **Amended
+>   twice.** A fan-in arity is back, as `collects`, and the first half of
+>   that argument no longer holds — a collection carries one eval edge per
+>   contributor. And `requiresOptional` itself was deleted as unused and
+>   then restored as **`optional`** when its 26 call sites turned up in the
+>   consumer, with one change: it resolves only when a deployer names the
+>   provider. ADR 0009. The second half stands and is why it is narrow:
+>   where a runtime aggregator exists, a consumer rendering its own resource
+>   is still the better answer, and nothing in this distribution was
+>   converted. §4.6's "collection is keyed by unit name and therefore
+>   disjoint" now describes the requires side as well as `out`, and §6's
+>   rejection of monoidal merge is unaffected — a collection is folded by
+>   its consumer, never merged by the linker. See ADR 0003.
 > - **The kinds named in §3.1 and §4.11** — `k8s.manifests`,
 >   `terraform.json`, `catallaxy.meta` — are not the shipped ones. Those are
 >   `catallaxy.component`, `catallaxy.cluster`, `catallaxy.resources` and
 >   `catallaxy.publications`. The first and third survive only as test
 >   fixtures.
 > - **§4.2 forbids functions in kind schemas**; `T.moduleType` does exactly
->   that, and `lib/floe-core/types.nix` argues the prohibition confused
->   _values_ with _schemas_. Values stay pure; a schema is never serialised.
+>   that, and `lib/types.nix` argues the prohibition confused _values_ with
+>   _schemas_. Values stay pure; a schema is never serialised.
 > - **§4.6 says there is no monoid.** True of core, which collects by unit
 >   and never merges. One layer up the distribution does define one —
 >   `lib/floe-catallaxy/component.nix`, with identity and associativity —
@@ -59,6 +63,27 @@ distribution
 >   checks it.** The practical enforcement is the per-floe interface
 >   document, which renders a provide's value beside the bundles it was
 >   projected from.
+>
+> **What the library gained after this RFC, which it does not describe.**
+> Each came out of asking what was missing before a large distribution was
+> ported, and each has an ADR because each changed what a link means:
+>
+> - **A provider must answer the requirer's signature** (ADR 0007), which is
+>   §7.4's versioning question answered without a version field.
+> - **A link can be a unit** (ADR 0006): `mkInclusion`, a floe whose body is
+>   a link. This RFC has no nesting at all — §4.6 is one fixpoint over one
+>   set of units — and an earlier `scope` that tried to add it was deleted
+>   (ADR 0003) before being replaced properly.
+> - **A third arity**, `optional` (ADR 0009), resolving only when named.
+> - **`T.package`**, and the rule that a package set is an input and never a
+>   signature, which is what keeps per-floe eval cacheable (ADR 0008).
+> - **A retrieval signature** on every deferred value (ADR 0005), without
+>   which §4.8's "backends substitute token sites" was not implementable:
+>   the token carried a label and a constant, and nothing could have filled
+>   the value in.
+> - **`behaviorTest`**, carried and never run, for the gap §4.4's
+>   conformance story does not cover — that a provider's _shape_ is checked
+>   and its behaviour is not.
 
 ## 1. Summary
 
@@ -554,27 +579,79 @@ because floe's checked surface is data, which is language-agnostic.
 
 ## 7. Open questions
 
-1. **Deferred transparency in interpolation.** Does
-   `"https://${deferredValue}"` produce a deferred string or an eval error?
-   Transparent propagation (Terraform-style unknown values) is ergonomic but
-   splits every type into concrete and deferred variants, and signature
-   fields must declare which they accept. Decide before the prelude
-   ossifies.
-2. **Kind naming.** Dotted-string registry owned by distributions
-   (`"k8s.manifests"`) with link-time collision check, versus
-   identity-by-schema-value. Draft position: dotted strings; readable IR has
-   been load-bearing.
-3. **Eval-time cycles between floes.** `lib.fix` permits them; deferred-only
-   cycles are cleaner and keep per-floe eval standalone (cacheable,
-   parallelizable, prerequisite for the Rust linker option). Decide whether
-   eval-time cycles are discouraged-by-convention or rejected-by-linker.
-4. **Signature evolution.** Signatures will change. Versioning scheme
-   (version field in `mkSig`, compatibility rule at link when requirer and
-   provider disagree) is out of scope here and needed before third-party
-   floes exist.
-5. **`T.template` design.** Typed data with declared holes plus prelude
-   `instantiate`. Exact shape unspecified; needed for the residual
-   "downstream fills in values the provider cannot know" cases.
+Four of the five are answered. The answers are recorded here because this is
+the document that asked, and in an ADR each where the argument is longer
+than a paragraph.
+
+1. **Deferred transparency in interpolation.** _Answered: it refuses._
+   `"https://${deferredValue}"` is a `throw` the token carries as its
+   `__toString`, naming the floe the value came from and what will make it
+   readable. Transparent propagation was rejected for the reason this
+   question anticipated: it splits every prelude type into concrete and
+   deferred variants and makes every signature field declare which it
+   accepts.
+
+   The decision was not the interesting part. Before it, the failure was
+   Nix's "cannot coerce a set to a string" — no floe named, nothing able to
+   wrap it, and uncatchable by `builtins.tryEval`, so it was the one
+   deliberate mistake in `examples/` that no test could hold. A shell script
+   asserted on the exit status instead. `__toString` moved the report from
+   Nix to floe, which is what made it testable; the script is deleted.
+
+2. **Kind naming.** _Answered: dotted strings, as the draft position had
+   it,_ and the registry turned out not to be a separate thing. An output
+   kind was a signature all along — `mkOutputKind` is gone, `mkSig` covers
+   both, and the link-time collision check is `canonicalName`: one hole or
+   provide name may not mean two signatures. See ADR 0003.
+
+3. **Eval-time cycles between floes.** _Answered: derived, not declared, and
+   left legal._ `wiringOne` and `wiringAll` are computed from headers before
+   any body evaluates, so the eval graph and its strongly-connected
+   components are known without running anything. Neither
+   discouraged-by-convention nor rejected-by-linker: exposed as
+   `link.cycles`, with the component as the unit of caching, and refusing
+   them available as a _policy_ for a distribution that wants acyclic eval.
+
+   Rejecting them outright would have traded a working property for a
+   caching convenience — `examples/nixos` depends on two mutual cycles, and
+   a cycle's blast radius being one link is half of what floe does about
+   NixOS's recursion problem. See ADR 0008, which also records the other
+   thing this question decides: packages, not package sets, as inputs.
+
+4. **Signature evolution.** _Answered, and it needed no versioning scheme._
+   `link` checks that a provider's shape answers the requirer's — the
+   provider must be a width-supertype, every field the requirer declared
+   present and compatible. That _is_ the evolution rule: adding a field is
+   compatible with every existing requirer, removing or retyping one is not,
+   and the error names the field. A version number would restate it less
+   precisely and need a compatibility rule of its own to mean anything.
+
+   This question was right that it was needed before third-party floes
+   exist, and right about why. Without the check, two definitions of one
+   name linked cleanly and the consumer died on `attribute 'port' missing`
+   several frames away, naming no floe, no field and no provider. See
+   ADR 0007.
+
+5. **`T.template` design.** _Still open, and the only one._ The residual
+   case is unchanged: data a provider cannot fully know, which a consumer
+   completes. Two things have narrowed it since. `collects` covers the half
+   where the consumer holds the knowledge and inverts the direction — a
+   workload declares its own claim and the provider folds every claim, which
+   is how `examples/nixos` provisions a database role per consumer without a
+   template anywhere. And a retrieval signature covers the half where the
+   missing part is a value that does not exist yet.
+
+   What is left is a provider-authored _string_ with named holes, and
+   nothing in either example or in catallaxy has wanted one. It stays
+   unspecified on the ADR 0003 rule: machinery nobody exercises is worse
+   than machinery that does not exist, because it still costs vocabulary.
+
+One question this RFC did not ask, which the closest living relative does
+answer: **nothing checks that a provider of a signature behaves like one.**
+Compatibility checks shape. NixOS RFC 0189 attaches a `behaviorTest` to its
+contracts and every provider must pass it. `mkSig` now carries one, and core
+never runs it — a VM test and a cluster to apply into have nothing in
+common, so which it means is a distribution's to know.
 
 ## 8. Implementation plan
 
