@@ -50,9 +50,12 @@ called by. A name may not mean two different signatures in one link; a
 signature may have more than one name, because a floe can hold a primary and
 a replica of the same thing.
 
-**Shape**: The `T` schema a signature is built from. Named for what it is
-rather than for a direction, because a signature has none — the surface it
-sits on is what makes it an input or an output.
+**Fields**: What a signature declares, as an attrset of `T` schemas. The
+vocabulary is ML's and the mixin module system's: fields belong to a
+signature, and nothing about them says a direction, because a signature has
+none — the surface it sits on is what makes it an input or an output. A
+signature with nothing worth naming — a rendered manifest — takes a bare `T`
+in the same place. _Avoid_: shape, schema.
 
 **Hole**: A signature a floe requires and does not implement. The arity is a
 property of the hole rather than of the signature: `requires` is exactly

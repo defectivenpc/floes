@@ -20,7 +20,7 @@ rec {
     name = "PORT_CLAIM";
     canonicalName = "ports";
     description = "Ports a service needs reachable from outside the machine.";
-    shape = T.record {
+    fields = {
       tcp = T.listOf T.port;
     };
     # No `service` field: a collection is keyed by the unit that provided it,
@@ -31,7 +31,9 @@ rec {
     name = "DB_ROLE_CLAIM";
     canonicalName = "dbRole";
     description = "A database a workload wants provisioned, with a role of its own to reach it.";
-    shape = T.record { database = T.str; };
+    fields = {
+      database = T.str;
+    };
     # No role name: the role is the claimant's unit name, which is unique in the
     # link by construction. Same reasoning as a workload's subdomain — a name the
     # deployer would otherwise have to invent and keep unique by hand.
@@ -41,7 +43,7 @@ rec {
     name = "SCRAPE_TARGET";
     canonicalName = "scrape";
     description = "A metrics endpoint a workload wants collected.";
-    shape = T.record {
+    fields = {
       port = T.port;
       path = T.str;
     };
@@ -51,7 +53,7 @@ rec {
     name = "ROUTE_CLAIM";
     canonicalName = "route";
     description = "A hostname a workload wants routed to one of its local ports.";
-    shape = T.record {
+    fields = {
       subdomain = T.str;
       port = T.port;
     };
@@ -61,7 +63,7 @@ rec {
     name = "NETWORK";
     canonicalName = "network";
     description = "The machine's network identity, and what the firewall ended up opening.";
-    shape = T.record {
+    fields = {
       hostName = T.str;
       domain = T.dnsName;
 
@@ -93,7 +95,7 @@ rec {
     name = "nixos.fileRef";
     canonicalName = "fileRef";
     description = "Readable from a file on the host, once the unit that writes it has run.";
-    shape = floe.T.record {
+    fields = {
       path = floe.T.str;
       mode = floe.T.enum [
         "text"
@@ -106,7 +108,7 @@ rec {
     name = "DATABASE";
     canonicalName = "database";
     description = "A Postgres a workload on this machine can reach.";
-    shape = T.record {
+    fields = {
       host = T.str;
       port = T.port;
 
@@ -152,7 +154,7 @@ rec {
     name = "REVERSE_PROXY";
     canonicalName = "proxy";
     description = "Something that routes public hostnames to local ports.";
-    shape = T.record {
+    fields = {
       baseDomain = T.dnsName;
       scheme = T.enum [
         "http"

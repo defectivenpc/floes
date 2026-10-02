@@ -74,9 +74,15 @@ The format is based on
 - **`mkOutputKind` is gone; `mkSig` covers both.** A signature already _was_
   an output kind — sealing built a record out of a signature's fields, which
   is exactly what a kind's schema was. `out.<canonicalName> = someSig`.
-- **`mkSig`'s `fields` is now `shape`**, and takes a `T` directly rather
-  than an attrset of them. One constructor then serves a narrow interface
-  and an opaque `T.attrsOf T.any` output alike.
+- **`mkSig`'s `fields` keeps its name and accepts either form.** It briefly
+  became `shape` and took a `T` directly, so one constructor could serve a
+  narrow interface and an opaque `T.attrsOf T.any` output alike. It now does
+  both under the name the vocabulary actually uses — fields belong to a
+  signature — dispatching on whether the argument is itself a type and
+  wrapping an attrset in `T.record`. `shape` survives as the internal
+  attribute name only, because `T.record` holds its own `fields` and a
+  signature storing the author's argument under that name would make
+  `link.nix` read `sig.fields.fields`.
 - **`mkSig`'s `as` is now `canonicalName`**, and `link` enforces it: no
   single hole or provide name may mean two different signatures. Not the
   reverse — a floe may hold a primary and a replica on one signature.

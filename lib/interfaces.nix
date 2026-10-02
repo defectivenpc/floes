@@ -2,19 +2,29 @@
 { lib, types }:
 
 {
-  # A signature: a named record schema over data.
-  # fields :: attrset of floe types (see types.nix).
-  #
   # A signature: a named schema for a value a floe commits to — one that crosses
-  # to a peer (`requires`, `collects`, `provides`) or one it emits (`out`). There
-  # used to be a second constructor, `mkOutputKind`, for the second case; it was
-  # the same record with a different word on it.
+  # to a peer (`requires`, `optional`, `collects`, `provides`) or one it emits
+  # (`out`). There used to be a second constructor, `mkOutputKind`, for the
+  # second case; it was the same record with a different word on it.
+  #
+  # `fields` is either an attrset of floe types (see types.nix), which is what a
+  # signature usually is and what it is named for, or a bare `T` for the case
+  # where there are no fields to name — an opaque `T.attrsOf T.any` rendered
+  # manifest. One word for both, dispatching on whether the argument is itself a
+  # type, because two spellings of one argument is what `docs/adr/0003` deleted
+  # elsewhere.
+  #
+  # It normalises to `T.record`, stored as `shape`. That name survives inside
+  # `lib/` only — `T.record` holds its own `fields`, so a signature storing the
+  # author's argument under the same name would make `link.nix` read
+  # `sig.fields.fields`. It appears in no document and in nothing an author
+  # writes.
   mkSig =
     {
       name,
       canonicalName ? null,
       description ? null,
-      shape,
+      fields,
     }:
     if canonicalName == null then
       throw (
@@ -36,8 +46,8 @@
           name
           canonicalName
           description
-          shape
           ;
+        shape = if fields ? tag then fields else types.record fields;
       };
 
   renderInputs = lib.mapAttrs (

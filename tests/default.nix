@@ -15,7 +15,9 @@ let
     name = "SELF";
     canonicalName = "self";
     description = "Fixture: a signature a floe provides and tries to require.";
-    shape = T.record { v = T.str; };
+    fields = {
+      v = T.str;
+    };
   };
 
   # A consumer echoes back what its hole resolved to, so a silent
@@ -24,7 +26,9 @@ let
     name = "ECHO";
     canonicalName = "echo";
     description = "Fixture: echoes back what a hole resolved to.";
-    shape = T.record { v = T.str; };
+    fields = {
+      v = T.str;
+    };
   };
 
   # One floe, one signature, and a switch for whether it also asks for it.
@@ -129,7 +133,9 @@ let
     name = "fixture.ref";
     canonicalName = "ref";
     description = "Fixture: where a deferred value will be readable.";
-    shape = T.record { path = T.str; };
+    fields = {
+      path = T.str;
+    };
   };
 
   # One signature *name*, two shapes. This is what version skew between
@@ -145,12 +151,12 @@ let
     }:
     let
       sigWith =
-        shape:
+        fields:
         floe.mkSig {
           name = "SKEW";
           canonicalName = "skew";
           description = "Fixture: one name, two shapes.";
-          inherit shape;
+          inherit fields;
         };
 
       prov = floe.mkFloe {
@@ -181,12 +187,12 @@ let
     { provided, required }:
     let
       sigWith =
-        shape:
+        fields:
         floe.mkSig {
           name = "SKEW";
           canonicalName = "skew";
           description = "Fixture: one name, two shapes.";
-          inherit shape;
+          inherit fields;
         };
 
       prov = floe.mkFloe {
@@ -579,10 +585,62 @@ in
       floe.mkSig {
         name = "X";
         canonicalName = "x";
-        shape = T.record { };
+        fields = { };
       }
     );
     expected = true;
+  };
+
+  # `fields` takes the attrset a signature is named for, and wraps it in
+  # `T.record` so that sealing drops what the signature did not declare.
+  testFieldsAsAnAttrsetSealsLikeARecord = {
+    expr =
+      let
+        sig = floe.mkSig {
+          name = "F";
+          canonicalName = "f";
+          description = "Fixture: fields as an attrset.";
+          fields = {
+            v = T.str;
+          };
+        };
+      in
+      T.checkValue [ ] sig.shape {
+        v = "kept";
+        extra = "dropped";
+      };
+    expected = {
+      v = "kept";
+    };
+  };
+
+  # And a bare `T` goes in the same place, for a signature with nothing worth
+  # naming — a rendered manifest. Both branches are exercised by the examples
+  # too, and this is the one that says which is which.
+  testFieldsAlsoTakesABareType = {
+    expr =
+      let
+        sig = floe.mkSig {
+          name = "F";
+          canonicalName = "f";
+          description = "Fixture: fields as a bare type.";
+          fields = T.attrsOf T.any;
+        };
+      in
+      {
+        tag = sig.shape.tag;
+        keepsEverything = T.checkValue [ ] sig.shape {
+          a = 1;
+          b = 2;
+        };
+      };
+    expected = {
+      tag = "attrsOf";
+      keepsEverything = {
+        a = 1;
+        b = 2;
+      };
+    };
   };
 
   testASignatureMustSayWhatItIsCalled = {
@@ -590,7 +648,7 @@ in
       floe.mkSig {
         name = "X";
         description = "d";
-        shape = T.record { };
+        fields = { };
       }
     );
     expected = true;
@@ -994,7 +1052,9 @@ in
           name = "fixture.out";
           canonicalName = "fixtureOut";
           description = "Fixture: output holding a package.";
-          shape = T.record { pkg = T.package; };
+          fields = {
+            pkg = T.package;
+          };
         };
         f = floe.mkFloe {
           name = "with-package";

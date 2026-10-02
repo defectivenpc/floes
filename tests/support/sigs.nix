@@ -14,7 +14,7 @@ in
     name = "k8s.statusField";
     canonicalName = "statusField";
     description = "Fixture: readable from a field of a resource's status, once applied.";
-    shape = T.record {
+    fields = {
       resource = T.str;
       field = T.str;
     };
@@ -24,7 +24,7 @@ in
     name = "INGRESS";
     canonicalName = "ingress";
     description = "Fixture: an ingress with a base domain and an assigned address.";
-    shape = T.record {
+    fields = {
       baseDomain = T.dnsName;
       className = T.str;
       # Only exists after apply; typed as deferred so eval-time misuse is an error.
@@ -36,7 +36,7 @@ in
     name = "OBSERVER";
     canonicalName = "observer";
     description = "Fixture: something that collects dashboards from its peers.";
-    shape = T.record {
+    fields = {
       ingressUrl = T.url;
       dashboards = T.attrsOf (T.record { url = T.url; });
     };
@@ -46,7 +46,7 @@ in
     name = "DASHBOARD_REQ";
     canonicalName = "dashboard";
     description = "Fixture: a dashboard a workload asks an observer to render.";
-    shape = T.record {
+    fields = {
       app = T.k8sName;
       panels = T.listOf T.str;
     };

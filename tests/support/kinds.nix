@@ -12,14 +12,14 @@ in
     canonicalName = "k8s";
     description = "Fixture: rendered manifests, for the test suite.";
     # Loose on purpose for the playground; a real one would narrow it.
-    shape = T.attrsOf T.any;
+    fields = T.attrsOf T.any;
   };
 
   meta = floe.mkSig {
     name = "catallaxy.meta";
     canonicalName = "meta";
     description = "Fixture: arbitrary metadata, for the test suite.";
-    shape = T.record {
+    fields = {
       cluster = T.enum [
         "management"
         "observability"

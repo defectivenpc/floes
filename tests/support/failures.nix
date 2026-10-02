@@ -98,7 +98,9 @@ in
           name = "LOOP_${n}";
           canonicalName = "loop${n}";
           description = "Fixture: a post-apply address, one half of a cycle.";
-          shape = floe.T.record { address = floe.T.deferred floe.T.str; };
+          fields = {
+            address = floe.T.deferred floe.T.str;
+          };
         };
 
       a = loopSig "A";

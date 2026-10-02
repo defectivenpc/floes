@@ -9,7 +9,7 @@ let
       name = "CLUSTER";
       canonicalName = "cluster";
       description = "A Kubernetes cluster to install into.";
-      shape = T.record {
+      fields = {
         version = T.str;
         apiServer = T.url;
       };
@@ -23,7 +23,7 @@ let
       name = "k8s.secretRef";
       canonicalName = "secretRef";
       description = "Readable from a key of a Kubernetes Secret, once applied.";
-      shape = T.record {
+      fields = {
         namespace = T.str;
         name = T.str;
         key = T.str;
@@ -34,7 +34,7 @@ let
       name = "ISSUER";
       canonicalName = "issuer";
       description = "Something that can sign certificates in this cluster.";
-      shape = T.record {
+      fields = {
         name = T.str;
         # Not known until cert-manager has generated its CA.
         caFingerprint = T.deferred T.str;
@@ -48,7 +48,7 @@ let
     name = "k8s.manifests";
     canonicalName = "k8s";
     description = "Rendered Kubernetes resources, keyed by name.";
-    shape = T.attrsOf T.any;
+    fields = T.attrsOf T.any;
   };
 
   cluster = floe.mkFloe {

@@ -184,7 +184,7 @@ anything.
 ## `mkSig`
 
 ```nix
-mkSig { name, canonicalName, description, shape }
+mkSig { name, canonicalName, description, fields }
 ```
 
 | Argument        | Meaning                                                          |
@@ -192,14 +192,14 @@ mkSig { name, canonicalName, description, shape }
 | `name`          | the identity resolution keys on. Two sigs sharing a name collide |
 | `canonicalName` | the name a hole or provide of it should be called by             |
 | `description`   | one line                                                         |
-| `shape`         | a `T.*` schema — `T.record { … }` for an interface               |
+| `fields`        | an attrset of `T.*` schemas, or a bare `T` for an opaque one     |
 
 ### Compatibility
 
 Resolution keys on `name`, a bare string, so two definitions of one name — a
 third-party floe pinning an older copy, two distributions shipping the same
 concept — both answer the same holes. `link` checks that the provider's
-shape **answers** the requirer's before anything evaluates: the provider
+fields **answer** the requirer's before anything evaluates: the provider
 must be a width-supertype, every field the requirer declared present and
 compatible, extras being what sealing drops.
 
@@ -227,11 +227,25 @@ There used to be a second, `mkOutputKind`, and it was the same record with a
 different word on it — sealing built a record out of a signature's fields,
 which is exactly what a kind's schema was.
 
-`shape` takes a `T` rather than an attrset of them, which is what lets one
-constructor serve both a narrow interface and an opaque
-`shape = T.attrsOf T.any` output. It is also why it is not called `fields`:
-a signature is neither input nor output, and the surface it sits on is what
-gives it direction.
+`fields` is usually an attrset of `T`s, which is what a signature is and
+what the ML and mixin vocabulary calls it:
+
+```nix
+fields = { host = T.str; port = T.port; };
+```
+
+A signature with nothing worth naming — a rendered manifest — passes a bare
+`T` in the same place, and one constructor serves both:
+
+```nix
+fields = T.attrsOf T.any;
+```
+
+It dispatches on whether the argument is itself a type, rather than taking
+two arguments, because two spellings of one thing is what
+[ADR 0003](adr/0003-trim-unexercised-surface.md) deleted elsewhere. Nothing
+about `fields` says a direction: a signature is neither input nor output,
+and the surface it sits on is what gives it one.
 
 `canonicalName`, `description` and `summary` are all required, and all three
 throw explicitly rather than being bare pattern arguments —
@@ -257,10 +271,10 @@ both would fail to link. The nominal distinction _is_ the mechanism.
 
 **Why there are two.** A value a deployer writes — a floe input — is
 described by a native NixOS option type. A value a floe _commits to_ — a
-signature's shape, whether it crosses to a peer or is emitted — is described
-by a floe data schema, `T`. That is the whole rule, and both halves are
-enforced where they are used: `mkFloe` refuses a `T` in `inputs`, and
-`checkValue` refuses a `lib.types` in anything a signature describes.
+signature's fields, whether they cross to a peer or are emitted — is
+described by a floe data schema, `T`. That is the whole rule, and both
+halves are enforced where they are used: `mkFloe` refuses a `T` in `inputs`,
+and `checkValue` refuses a `lib.types` in anything a signature describes.
 
 `lib.types` cannot do the signature side, for two reasons:
 
@@ -285,7 +299,7 @@ can express, not for speed. `docs/adr/0004` has the measurements.
 | Constructor                                   | Is                                                                      |
 | --------------------------------------------- | ----------------------------------------------------------------------- |
 | `T.str`, `T.int`, `T.bool`, `T.port`          | scalars                                                                 |
-| `T.url`, `T.dnsName`                          | scalars with a shape                                                    |
+| `T.url`, `T.dnsName`                          | scalars with a pattern                                                  |
 | `T.package`                                   | a derivation or the store path it coerces to                            |
 | `T.enum`, `T.nullOr`, `T.listOf`, `T.attrsOf` | the usual combinators                                                   |
 | `T.record`                                    | a fixed set of named fields                                             |
@@ -347,11 +361,11 @@ FILE_REF = floe.mkSig {
   name = "nixos.fileRef";
   canonicalName = "fileRef";
   description = "Readable from a file on the host, once the unit writing it has run.";
-  shape = T.record { path = T.str; mode = T.enum [ "text" "firstLine" ]; };
+  fields = { path = T.str; mode = T.enum [ "text" "firstLine" ]; };
 };
 ```
 
-Core checks the ref against that shape and records the signature's `name`.
+Core checks the ref against those fields and records the signature's `name`.
 It never looks inside, and never learns what a file or a Secret is. **A
 retrieval signature says where a value will be readable; a backend
 implements how.**
@@ -424,7 +438,7 @@ output signature, merged over rather than replacing, so a floe needing a
 second cluster hole can still name one.
 
 `examples/nixos/kinds.nix` is the small version: one helper that builds the
-`nixos.config` signature with a shape the calling floe supplies, so every
+`nixos.config` signature with the fields the calling floe supplies, so every
 floe narrows its own output without restating the name.
 
 ## Testing a floe
