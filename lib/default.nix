@@ -19,7 +19,7 @@ let
 in
 {
   T = types;
-  inherit (types) checkValue isDeferredToken stubFor;
+  inherit (types) checkValue isDeferredToken;
   inherit (interfaces)
     mkSig
     narrows

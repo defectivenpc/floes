@@ -540,41 +540,6 @@ RFC 0001 proposed a `checkFloe` that would check a floe in isolation. It was
 never built, and this replaced it: checking against the real linker catches
 what an isolated approximation cannot.
 
-### `T.stubFor`
-
-The values are the tedious part, so core derives them:
-
-```nix
-T.stubFor DATABASE.shape                            # every field, typed
-T.stubFor API_GATEWAY.shape // { baseDomain = "lab.test"; }   # the one that matters
-```
-
-Possible at all because a schema is pure data, which is most of why `T`
-exists rather than `lib.types`. The values are deliberately uninformative —
-`"stub"`, port `1` — because a suite that cares what a field says overrides
-it, and what this removes is the obligation to write the other nine. Every
-distribution was hand-maintaining a stub per signature, which is a table
-that goes stale the moment a signature gains a field.
-
-One case cannot be derived and says so: `T.moduleType`'s inhabitants are the
-module system's to know. The error names the field.
-
-The stub _floe_ stays yours, because it is three lines and core shipping it
-would start a framework:
-
-```nix
-mkStub = sig: value: (floe.mkFloe {
-  name = "stub-${sig.canonicalName}";
-  summary = "Stub provider for a suite.";
-  provides.${sig.canonicalName} = sig;
-  body = _: { provides.${sig.canonicalName} = value; };
-}).instantiate { };
-```
-
-Name the provide by `canonicalName`, not something fixed: naming every
-stub's provide `it` makes one name mean every signature in the catalogue,
-and `link` refuses that.
-
 ### `narrows`
 
 ```nix

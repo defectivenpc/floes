@@ -127,11 +127,6 @@ and never a whole package set: which nixpkgs, which overlays and which
 system are the deployer's choice, and a package set can be neither hashed
 for a cache key nor serialised.
 
-**Stub value**: A value satisfying a signature, derived from the signature
-rather than written out. What lets one floe be checked alone, against stubs,
-so a failure names that floe and not whichever link rendered it. Possible
-because a schema is pure data. _Avoid_: fixture, mock, dummy.
-
 **Derived field**: A field its provider computed by folding a collection.
 The linker withholds it from any peer that contributes to that same
 collection, because reading it there would be a cycle through the fold.

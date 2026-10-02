@@ -55,23 +55,6 @@ The format is based on
   no version field.
   [ADR 0007](docs/adr/0007-a-provider-must-answer-the-requirers-signature.md)
 
-- **`T.stubFor`**, a value satisfying a type, derived from the type. What a
-  distribution needs to check one floe alone against stubs, and what every
-  distribution was hand-maintaining — a stub per signature is a table that
-  goes stale the moment a signature gains a field. Deliberately
-  uninformative, because a suite that cares what a field says overrides it;
-  what this removes is writing the other nine. Possible at all because a
-  schema is pure data. `T.moduleType` is the one case it refuses, naming the
-  field, since an option type's inhabitants are the module system's to know.
-
-- **`narrows`**, and `link` checking that an inclusion's `exports` do. A
-  narrowing promises no more than what it narrows, which is the whole job of
-  an export signature and of a distribution's "this may cross a boundary"
-  table — and neither was checking it. The same relation compatibility
-  decides between a requirer and a provider, pointed inward. An export that
-  accidentally _widened_ used to surface where a peer read the field that
-  was not there.
-
 - **`T.package`**, a derivation or the store path it coerces to: the one way
   something built crosses a floe boundary. A package **set** is not a
   signature — a floe takes the packages it needs as ordinary inputs, one at
