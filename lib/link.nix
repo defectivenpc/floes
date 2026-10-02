@@ -469,7 +469,7 @@ rec {
       withheld =
         u: from: sig: value:
         let
-          fields = sig.shape.fields or { };
+          inherit (sig) fields;
         in
         if (sig.shape.tag or "") != "record" then
           value

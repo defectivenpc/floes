@@ -14,11 +14,15 @@
   # type, because two spellings of one argument is what `docs/adr/0003` deleted
   # elsewhere.
   #
-  # It normalises to `T.record`, stored as `shape`. That name survives inside
-  # `lib/` only — `T.record` holds its own `fields`, so a signature storing the
-  # author's argument under the same name would make `link.nix` read
-  # `sig.fields.fields`. It appears in no document and in nothing an author
-  # writes.
+  # A signature carries both halves of that, because they answer different
+  # questions and a reader asks each. `shape` is the normalised `T`, which is
+  # what `checkValue` seals against. `fields` is the field table — what a
+  # signature declares, which is what a generated interface document renders
+  # and what the collection-cycle check reads. Empty for a signature with no
+  # fields to name.
+  #
+  # Storing the normalised type under `shape` is what keeps `fields` the plain
+  # attrset an author wrote rather than `sig.fields.fields`.
   mkSig =
     {
       name,
@@ -48,6 +52,7 @@
           description
           ;
         shape = if fields ? tag then fields else types.record fields;
+        fields = if fields ? tag then fields.fields or { } else fields;
       };
 
   renderInputs = lib.mapAttrs (
