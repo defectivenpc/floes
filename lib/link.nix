@@ -39,6 +39,15 @@ rec {
       # a parameter because core knows no floe set.
       catalogue ? { },
 
+      # synthetic :: [UnitName]
+      #
+      # Units an inclusion injected to carry its parent's values inward. Passed
+      # rather than detected from a name prefix, because a deployer is entitled
+      # to call a unit anything and a prefix would quietly swallow it. They are
+      # an implementation device, so every view below is computed as if the
+      # value had simply arrived.
+      synthetic ? [ ],
+
       # withinInclusion :: UnitName | null
       #
       # Set when this link is the body of an inclusion, and read on the
@@ -464,18 +473,15 @@ rec {
       # rather than nested inside them.
       qualify = u: n: "${u}/${n}";
 
+      isSynthetic = n: lib.elem n synthetic;
+
       # An outer value, offered to the units inside as an ordinary provider.
       #
       # That is the whole of how a parent fills an inner hole, and the reason
       # this is not `scope` again: not a second resolution path consulted when
       # the first one fails, but a unit in the link like any other, with a real
       # eval edge pointing at it. Resolution gained nothing to special-case.
-      #
-      # The prefix is what marks these as an implementation device, so the
-      # flattened views below can leave them out of what a reader or a backend
-      # sees.
       outerPrefix = "outer:";
-      isOuter = n: lib.hasPrefix outerPrefix n;
 
       outerUnit =
         sig: value:
@@ -554,7 +560,11 @@ rec {
               if incl == null then
                 null
               else
+                let
+                  injected = fromOuter "requires" // fromOuter "optional" // fromOuterCollections;
+                in
                 link {
+                  synthetic = lib.attrNames injected;
                   units =
                     incl.units {
                       inputs = inst.inputsChecked;
@@ -565,9 +575,7 @@ rec {
                         mkDeferred = floeLib.mkDeferredFor u;
                       };
                     }
-                    // fromOuter "requires"
-                    // fromOuter "optional"
-                    // fromOuterCollections;
+                    // injected;
                   inherit (incl) defaults policies;
                   inherit catalogue;
                   withinInclusion = u;
@@ -700,7 +708,7 @@ rec {
                   if lib.elem site.token.source innerNodes then qualify u site.token.source else site.token.source;
               };
             }
-          ) (lib.filter (s: !(isOuter s.unit)) fixed.${u}.inner.deferredSites)
+          ) fixed.${u}.inner.deferredSites
         else
           lib.concatLists (
             lib.mapAttrsToList (
@@ -717,40 +725,46 @@ rec {
           )
       ) instNames;
 
-      evalEdges = lib.concatMap (
-        u:
-        lib.mapAttrsToList (hole: p: {
-          from = u;
-          to = p.instName;
-          via = hole;
-          kind = "eval";
-        }) wiringOne.${u}
-        # A hole that resolved. An unwired optional one is not an edge, because
-        # nothing was read.
-        ++ lib.concatMap (
-          hole:
-          let
-            p = wiringOptional.${u}.${hole};
-          in
-          lib.optional (p != null) {
+      # An edge to a synthetic unit stands for a value the parent supplied, and
+      # the parent emits that edge itself against its own hole. Keeping this one
+      # too would say the same thing twice, in terms of a node nothing else
+      # mentions.
+      evalEdges = lib.filter (e: !(isSynthetic e.to)) (
+        lib.concatMap (
+          u:
+          lib.mapAttrsToList (hole: p: {
             from = u;
             to = p.instName;
             via = hole;
             kind = "eval";
-          }
-        ) (lib.attrNames wiringOptional.${u})
-        ++ lib.concatLists (
-          lib.mapAttrsToList (
-            hole: ps:
-            map (p: {
+          }) wiringOne.${u}
+          # A hole that resolved. An unwired optional one is not an edge, because
+          # nothing was read.
+          ++ lib.concatMap (
+            hole:
+            let
+              p = wiringOptional.${u}.${hole};
+            in
+            lib.optional (p != null) {
               from = u;
               to = p.instName;
               via = hole;
               kind = "eval";
-            }) ps
-          ) wiringAll.${u}
-        )
-      ) instNames;
+            }
+          ) (lib.attrNames wiringOptional.${u})
+          ++ lib.concatLists (
+            lib.mapAttrsToList (
+              hole: ps:
+              map (p: {
+                from = u;
+                to = p.instName;
+                via = hole;
+                kind = "eval";
+              }) ps
+            ) wiringAll.${u}
+          )
+        ) instNames
+      );
 
       deployEdges = lib.unique (
         lib.concatMap (
@@ -783,6 +797,8 @@ rec {
       # Grouped by the emitted signature's `name`, which is what lets a consumer
       # fold every floe's fragment without knowing which floes exist — and, with
       # an inclusion in the link, without knowing how deep any of them sit.
+      # A synthetic unit declares no `out`, so it contributes nothing here and
+      # needs no filtering — the same is true of `deferredSites`.
       outEntries = lib.concatMap (
         u:
         if isInclusion u then
@@ -792,7 +808,7 @@ rec {
               lib.mapAttrsToList (leaf: value: {
                 inherit sigName value;
                 unit = qualify u leaf;
-              }) (lib.filterAttrs (leaf: _: !(isOuter leaf)) byUnit)
+              }) byUnit
             ) fixed.${u}.inner.out
           )
         else
@@ -809,10 +825,30 @@ rec {
 
       # Every unit that emits, at any depth: what `phases` is keyed by, because
       # an inclusion is not a thing that applies — its units are.
+      #
+      # Recursing through each inner link's *leaves* and not its nodes, which is
+      # the whole of the difference once there are two levels: an inner link's
+      # nodes include its own inclusions, and those are not leaves either. At
+      # one level the two sets coincide, which is why this took a nested test.
       leafNames = lib.concatMap (
         u:
-        if isInclusion u then
-          map (qualify u) (lib.filter (n: !(isOuter n)) fixed.${u}.inner.graph.nodes)
+        if isSynthetic u then
+          [ ]
+        else if isInclusion u then
+          map (qualify u) fixed.${u}.inner.leaves
+        else
+          [ u ]
+      ) instNames;
+
+      # Every unit at every level, inclusions included — an inclusion is a node
+      # because the edge into it is a real fact about its own hole, and an inner
+      # edge may name one, so leaving it out would dangle.
+      nodeNames = lib.concatMap (
+        u:
+        if isSynthetic u then
+          [ ]
+        else if isInclusion u then
+          [ u ] ++ map (qualify u) fixed.${u}.inner.graph.nodes
         else
           [ u ]
       ) instNames;
@@ -833,20 +869,14 @@ rec {
             innerNodes = fixed.${u}.inner.graph.nodes;
             rename = n: if lib.elem n innerNodes then qualify u n else n;
           in
-          map
-            (
-              e:
-              e
-              // {
-                from = rename e.from;
-                to = rename e.to;
-              }
-            )
-            (
-              lib.filter (
-                e: e.kind == "eval" && !(isOuter e.from) && !(isOuter e.to)
-              ) fixed.${u}.inner.graph.edges
-            )
+          map (
+            e:
+            e
+            // {
+              from = rename e.from;
+              to = rename e.to;
+            }
+          ) (lib.filter (e: e.kind == "eval") fixed.${u}.inner.graph.edges)
         else
           [ ]
       ) instNames;
@@ -870,8 +900,12 @@ rec {
         # real fact about the inclusion's own hole, and the edges between its
         # units are real facts about them. So the graph is hierarchical where
         # the link is, and flat everywhere else.
+        # Every unit that emits, at any depth, which is what a parent recurses
+        # through when this link is the body of one of its inclusions.
+        leaves = leafNames;
+
         graph = {
-          nodes = lib.unique (instNames ++ leafNames);
+          nodes = lib.unique nodeNames;
           edges = evalEdges ++ innerEdges ++ deployEdges;
         };
 

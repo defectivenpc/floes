@@ -375,6 +375,40 @@ let
     };
   };
 
+  # An inclusion holding an inclusion. Two levels, because one level cannot
+  # distinguish an inner link's *nodes* from its *leaves* — they coincide until
+  # something inside is itself an inclusion, and the flattening depends on the
+  # difference.
+  twoDeep =
+    let
+      inner = floe.mkInclusion {
+        name = "inner";
+        summary = "Fixture inclusion for a test suite.";
+        requires.deferredThing = DEFERRED_THING;
+        provides.narrow = NARROW;
+        exports.narrow = "insider";
+        units = _: {
+          insider = insider.instantiate { };
+          emitter = emitter.instantiate { };
+        };
+      };
+
+      outer = floe.mkInclusion {
+        name = "outer";
+        summary = "Fixture inclusion for a test suite.";
+        requires.deferredThing = DEFERRED_THING;
+        provides.narrow = NARROW;
+        exports.narrow = "nested";
+        units = _: { nested = inner.instantiate { }; };
+      };
+    in
+    floe.link {
+      units = {
+        minter = minter.instantiate { };
+        env = outer.instantiate { };
+      };
+    };
+
   # A derivation, as far as any Nix consumer is concerned. `out` is itself,
   # which is what made walking one a stack overflow.
   fakeDrv = rec {
@@ -1197,6 +1231,47 @@ in
       "env/insider"
       "minter"
     ];
+  };
+
+  # Composition is closed: an inclusion is a floe, so an inclusion holds one the
+  # same way it holds anything. The hole threads down two levels, the export
+  # narrows at each boundary it crosses, and the output name says where it sat.
+  testAnInclusionHoldsAnInclusion = {
+    expr = {
+      out = lib.attrNames twoDeep.out.OPAQUE;
+      provides = twoDeep.provides.env.narrow;
+    };
+    expected = {
+      out = [ "env/nested/emitter" ];
+      provides = {
+        v = "inner";
+      };
+    };
+  };
+
+  # The distinction one level cannot test. An inner link's nodes include its own
+  # inclusions; its leaves do not. `phases` is keyed by leaves, because an
+  # inclusion is not a thing that applies — so the intermediate `env/nested`
+  # must be a node and must not have a phase.
+  testAnIntermediateInclusionIsANodeWithNoPhase = {
+    expr = {
+      nodes = lib.sort (a: b: a < b) twoDeep.graph.nodes;
+      phased = lib.sort (a: b: a < b) (lib.attrNames twoDeep.phases);
+    };
+    expected = {
+      nodes = [
+        "env"
+        "env/nested"
+        "env/nested/emitter"
+        "env/nested/insider"
+        "minter"
+      ];
+      phased = [
+        "env/nested/emitter"
+        "env/nested/insider"
+        "minter"
+      ];
+    };
   };
 
   testExportingFromAUnitThatIsNotThereIsRefused = {
