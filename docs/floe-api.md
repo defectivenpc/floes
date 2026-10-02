@@ -88,7 +88,9 @@ floe's output. `requires` gets the same property for free by erroring on a
 second provider; this is the version of it for a hole that may be absent.
 
 The cost is a line per optional hole a deployer actually wants wired, which
-`defaults` pays once for a whole link rather than once per consumer.
+`defaults` pays once for a whole link rather than once per consumer — eleven
+consumer-holes collapsed to four entries when catallaxy was ported.
+[ADR 0009](adr/0009-an-optional-hole-resolves-only-when-named.md).
 
 ### `singleton`
 
@@ -537,6 +539,63 @@ floe.
 RFC 0001 proposed a `checkFloe` that would check a floe in isolation. It was
 never built, and this replaced it: checking against the real linker catches
 what an isolated approximation cannot.
+
+### `T.stubFor`
+
+The values are the tedious part, so core derives them:
+
+```nix
+T.stubFor DATABASE.shape                            # every field, typed
+T.stubFor API_GATEWAY.shape // { baseDomain = "lab.test"; }   # the one that matters
+```
+
+Possible at all because a schema is pure data, which is most of why `T`
+exists rather than `lib.types`. The values are deliberately uninformative —
+`"stub"`, port `1` — because a suite that cares what a field says overrides
+it, and what this removes is the obligation to write the other nine. Every
+distribution was hand-maintaining a stub per signature, which is a table
+that goes stale the moment a signature gains a field.
+
+One case cannot be derived and says so: `T.moduleType`'s inhabitants are the
+module system's to know. The error names the field.
+
+The stub _floe_ stays yours, because it is three lines and core shipping it
+would start a framework:
+
+```nix
+mkStub = sig: value: (floe.mkFloe {
+  name = "stub-${sig.canonicalName}";
+  summary = "Stub provider for a suite.";
+  provides.${sig.canonicalName} = sig;
+  body = _: { provides.${sig.canonicalName} = value; };
+}).instantiate { };
+```
+
+Name the provide by `canonicalName`, not something fixed: naming every
+stub's provide `it` makes one name mean every signature in the catalogue,
+and `link` refuses that.
+
+### `behaviorTest`
+
+Compatibility checks a provider's **shape**. Nothing checks that a provider
+of `DATABASE` actually serves one, and that gap is real: NixOS RFC 0189 —
+the closest living relative to this design — has a `behaviorTest` attached
+to its contracts, and this did not.
+
+`mkSig` takes one and **core never runs it**:
+
+```nix
+DATABASE = mkSig {
+  …;
+  behaviorTest = { kind = "nixos-vm"; script = "psql -h $HOST -c 'select 1'"; };
+};
+```
+
+Opaque, because the two domains have nothing in common — a NixOS provider
+wants a VM test, a Kubernetes one wants a cluster to apply into — so core
+would have to know which to run it. It stores it, and a distribution's
+harness runs it for every provider it finds. Core owns coherence,
+distributions own domain legality, as everywhere else.
 
 ## Related
 

@@ -41,6 +41,7 @@ The format is based on
   hole is an error naming the candidate. So adding a floe to a link can
   never silently change another floe's output, which is the property
   `requires` gets for free by erroring on a second provider.
+  [ADR 0009](docs/adr/0009-an-optional-hole-resolves-only-when-named.md)
 
 - **`link` checks that a provider answers the requirer's signature.**
   Resolution keys on a signature's `name`, a bare string, and nothing
@@ -53,6 +54,22 @@ The format is based on
   refused. This is also the signature-evolution rule, which is why there is
   no version field.
   [ADR 0007](docs/adr/0007-a-provider-must-answer-the-requirers-signature.md)
+
+- **`T.stubFor`**, a value satisfying a type, derived from the type. What a
+  distribution needs to check one floe alone against stubs, and what every
+  distribution was hand-maintaining — a stub per signature is a table that
+  goes stale the moment a signature gains a field. Deliberately
+  uninformative, because a suite that cares what a field says overrides it;
+  what this removes is writing the other nine. Possible at all because a
+  schema is pure data. `T.moduleType` is the one case it refuses, naming the
+  field, since an option type's inhabitants are the module system's to know.
+
+- **`mkSig { behaviorTest = …; }`**, carried and **never run by core**.
+  Compatibility checks a provider's shape; nothing checks that a provider of
+  `DATABASE` serves one, which is the gap NixOS RFC 0189 names and fills and
+  this did not. Opaque because a VM test and a cluster to apply into have
+  nothing in common, so core would have to know which to run it — it stores
+  it and a distribution's harness runs it per provider.
 
 - **`T.package`**, a derivation or the store path it coerces to: the one way
   something built crosses a floe boundary. A package **set** is not a

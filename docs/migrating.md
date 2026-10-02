@@ -50,7 +50,13 @@ automatic resolution means adding a floe to a link rewrites another floe's
 output with nothing saying so, which is the action at a distance that makes
 `enable` flags frightening once a configuration is too large to read.
 `requires` never had the problem, because a second provider is an error
-there. See the `optional` section of [the API](floe-api.md).
+there. [ADR 0009](adr/0009-an-optional-hole-resolves-only-when-named.md) is
+the argument; the `optional` section of [the API](floe-api.md) is the
+surface.
+
+Measured, so the ceremony is a number rather than a worry: catallaxy's
+eleven consumer-holes needed **four** `defaults` entries, because one entry
+covers every consumer of that signature.
 
 **`link`'s `scope`, and `T.local` / `isUncrossable` with it.** This is the
 painful one, and it is catallaxy's lab→cluster nesting. Nothing in

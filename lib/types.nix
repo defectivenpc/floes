@@ -149,6 +149,74 @@ rec {
 
   isDeferredToken = v: isAttrs v && (v.__deferred or false) == true;
 
+  # ---- Stub values --------------------------------------------------------
+  #
+  # A value satisfying a type, derived from the type. Possible at all because a
+  # schema is pure data, which is most of why `T` exists rather than
+  # `lib.types`.
+  #
+  # What it is for: checking one floe alone, against stubs, so a failure names
+  # that floe rather than whichever link happened to render it. Every
+  # distribution needs that and every distribution was writing it — catallaxy
+  # had a hand-maintained stub per signature, which is a table that goes stale
+  # the moment a signature gains a field.
+  #
+  # Mechanical, so the values are uninformative on purpose: a suite that cares
+  # what a field says overrides it, `stubFor SIG // { baseDomain = "x.test"; }`.
+  # What this removes is the obligation to write the other nine fields.
+  stubFor =
+    ty:
+    let
+      tag = ty.tag or (throw "floe: stubFor needs a floe type; got something with no tag");
+    in
+    if tag == "str" then
+      "stub"
+    else if tag == "int" then
+      0
+    else if tag == "bool" then
+      false
+    else if tag == "port" then
+      1
+    else if tag == "url" then
+      "https://stub.invalid"
+    else if tag == "dnsName" then
+      "stub.invalid"
+    else if tag == "package" then
+      "/nix/store/00000000000000000000000000000000-stub"
+    else if tag == "any" then
+      { }
+    else if tag == "enum" then
+      lib.head ty.values
+    else if tag == "nullOr" then
+      null
+    else if tag == "listOf" then
+      [ ]
+    else if tag == "attrsOf" then
+      { }
+    # A requirer that declared a field deferred takes a concrete value too, and
+    # a concrete one is what lets the floe under test render something.
+    else if tag == "deferred" || tag == "derivedFrom" then
+      stubFor ty.inner
+    else if tag == "record" then
+      lib.mapAttrs (_: stubFor) ty.fields
+    else if tag == "taggedUnion" then
+      (
+        let
+          k = lib.head (lib.attrNames ty.variants);
+        in
+        {
+          ${k} = stubFor ty.variants.${k};
+        }
+      )
+    # The one that cannot be derived: an option type's inhabitants are known to
+    # nixpkgs and not to this. Naming the field is the useful failure.
+    else
+      throw (
+        "floe: stubFor cannot derive a value for ${ty.name or tag}. A module type's "
+        + "values are the module system's to know. Supply this field yourself: "
+        + "`stubFor SIG // { <field> = …; }`."
+      );
+
   # ---- Compatibility ------------------------------------------------------
   #
   # Whether a provider's shape answers a requirer's. Resolution keys on a

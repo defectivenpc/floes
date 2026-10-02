@@ -29,6 +29,22 @@
       canonicalName ? null,
       description ? null,
       fields,
+
+      # behaviorTest :: anything | null
+      #
+      # A check that every provider of this signature must pass, carried here
+      # and **never run by core**. Compatibility checks a provider's *shape*;
+      # nothing checks that a provider of `DATABASE` actually serves one, and
+      # that is the gap NixOS RFC 0189's `behaviorTest` names — the closest
+      # living relative to this design has it and this did not.
+      #
+      # Opaque because the two domains have nothing in common: a NixOS provider
+      # wants a VM test, a Kubernetes one wants a cluster to apply into. Core
+      # would have to know which to run it, so it stores it and a
+      # distribution's harness runs it for every provider it finds. Same
+      # layering as everywhere else: core owns coherence, distributions own
+      # domain legality.
+      behaviorTest ? null,
     }:
     if canonicalName == null then
       throw (
@@ -53,6 +69,7 @@
           ;
         shape = if fields ? tag then fields else types.record fields;
         fields = if fields ? tag then fields.fields or { } else fields;
+        inherit behaviorTest;
       };
 
   renderInputs = lib.mapAttrs (

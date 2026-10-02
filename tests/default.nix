@@ -1359,6 +1359,122 @@ in
     expected = true;
   };
 
+  # ---- Stub values ---------------------------------------------------------
+
+  # The property worth having, and the only one: whatever `stubFor` derives
+  # must satisfy the signature it was derived from. Checked against a signature
+  # holding one of everything, because a stub that does not seal is worse than
+  # no stub — a suite would fail on the harness rather than on the floe.
+  testAStubSatisfiesTheSignatureItCameFrom = {
+    expr =
+      let
+        everything = T.record {
+          s = T.str;
+          i = T.int;
+          b = T.bool;
+          p = T.port;
+          u = T.url;
+          d = T.dnsName;
+          pkg = T.package;
+          a = T.any;
+          e = T.enum [
+            "one"
+            "two"
+          ];
+          n = T.nullOr T.str;
+          l = T.listOf T.str;
+          m = T.attrsOf T.int;
+          deep = T.record { inner = T.port; };
+          union = T.taggedUnion {
+            small = T.record { size = T.int; };
+            large = T.record { label = T.str; };
+          };
+          later = T.deferred T.str;
+          folded = T.derivedFrom SELF T.str;
+        };
+        stub = T.stubFor everything;
+      in
+      T.checkValue [ "stub" ] everything stub == stub;
+    expected = true;
+  };
+
+  # A refinement is not satisfied by any old value of what it refines, so these
+  # are the ones a mechanical stub gets wrong if it is careless: port 0 is not a
+  # port, and the empty string is not a DNS name.
+  testStubsSatisfyTheRefinedScalars = {
+    expr = {
+      port = T.checkValue [ ] T.port (T.stubFor T.port);
+      url = T.checkValue [ ] T.url (T.stubFor T.url);
+      dnsName = T.checkValue [ ] T.dnsName (T.stubFor T.dnsName);
+    };
+    expected = {
+      port = 1;
+      url = "https://stub.invalid";
+      dnsName = "stub.invalid";
+    };
+  };
+
+  # A suite that cares what a field says overrides it; what the stub removes is
+  # having to write the others.
+  testAStubIsOverridable = {
+    expr =
+      let
+        sig = floe.mkSig {
+          name = "OVERRIDE";
+          canonicalName = "override";
+          description = "Fixture: a stub with one field that matters.";
+          fields = {
+            baseDomain = T.dnsName;
+            scheme = T.enum [
+              "http"
+              "https"
+            ];
+          };
+        };
+      in
+      T.checkValue [ ] sig.shape (T.stubFor sig.shape // { baseDomain = "lab.test"; });
+    expected = {
+      baseDomain = "lab.test";
+      scheme = "http";
+    };
+  };
+
+  # A module type's inhabitants are the module system's to know, so this is the
+  # one case that cannot be derived — and saying so names the field instead of
+  # producing something that fails to seal two frames later.
+  testAStubForAModuleTypeIsRefused = {
+    expr = fails (T.stubFor (T.moduleType lib.types.str));
+    expected = true;
+  };
+
+  # Carried and never run: core cannot know whether a provider of `DATABASE`
+  # serves one, because a VM test and a cluster to apply into have nothing in
+  # common. A distribution's harness runs it for every provider it finds.
+  testASignatureCarriesItsBehaviorTestUntouched = {
+    expr =
+      (floe.mkSig {
+        name = "BEHAVED";
+        canonicalName = "behaved";
+        description = "Fixture: a signature with a conformance check attached.";
+        fields = {
+          v = T.str;
+        };
+        behaviorTest = {
+          kind = "nixos-vm";
+          script = "curl -fsS http://localhost";
+        };
+      }).behaviorTest;
+    expected = {
+      kind = "nixos-vm";
+      script = "curl -fsS http://localhost";
+    };
+  };
+
+  testASignatureWithoutOneCarriesNull = {
+    expr = SELF.behaviorTest;
+    expected = null;
+  };
+
   # ---- Packages (ADR 0008) -------------------------------------------------
 
   testAPackageAcceptsADerivation = {
