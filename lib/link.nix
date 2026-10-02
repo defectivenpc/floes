@@ -39,14 +39,18 @@ rec {
       # a parameter because core knows no floe set.
       catalogue ? { },
 
-      # synthetic :: [UnitName]
+      # synthetic :: { UnitName -> { hole; signature; } }
       #
       # Units an inclusion injected to carry its parent's values inward. Passed
       # rather than detected from a name prefix, because a deployer is entitled
       # to call a unit anything and a prefix would quietly swallow it. They are
       # an implementation device, so every view below is computed as if the
       # value had simply arrived.
-      synthetic ? [ ],
+      #
+      # Each carries the hole it came from, so that a hole the inclusion
+      # declared and nothing inside reads can be named in the error rather than
+      # recovered from a unit name.
+      synthetic ? { },
 
       # withinInclusion :: UnitName | null
       #
@@ -397,6 +401,34 @@ rec {
           + lib.concatStringsSep "\n      - " ms
         );
 
+      # A hole an inclusion declared that nothing inside it reads.
+      #
+      # This is the cost of declaring an inclusion's holes rather than inferring
+      # them from its units, which Backpack can do and this cannot: `units` is a
+      # function of `inputs`, so the set of units inside is not known until
+      # something evaluates, and a floe's interface has to be readable from its
+      # header before anything does. The under-declared direction is caught by
+      # the unfilled-hole error; this is the other one.
+      #
+      # An unused declaration asks a deployer to wire something that changes
+      # nothing, and `.bind` is the ceremony the whole arity story is measured
+      # in, so a hole that buys nothing is worth refusing.
+      unreadInjections =
+        let
+          targets = lib.unique (
+            lib.concatMap (
+              u:
+              map (p: p.instName) (lib.attrValues wiringOne.${u})
+              ++ map (p: p.instName) (lib.filter (p: p != null) (lib.attrValues wiringOptional.${u}))
+              ++ map (p: p.instName) (lib.concatLists (lib.attrValues wiringAll.${u}))
+            ) instNames
+          );
+          unread = lib.filter (s: !(lib.elem s targets)) (lib.attrNames synthetic);
+        in
+        # Per hole rather than per injected unit: a collected hole injects one
+        # unit per contributor, and they are all the same mistake.
+        lib.unique (map (s: synthetic.${s}) unread);
+
       incompatibilities = lib.concatMap (
         u:
         let
@@ -473,7 +505,7 @@ rec {
       # rather than nested inside them.
       qualify = u: n: "${u}/${n}";
 
-      isSynthetic = n: lib.elem n synthetic;
+      isSynthetic = n: synthetic ? ${n};
 
       # An outer value, offered to the units inside as an ordinary provider.
       #
@@ -532,13 +564,20 @@ rec {
               let
                 incl = inst.def.inclusion;
 
+                # What each injected unit is, keyed by the name it takes in the
+                # inner link: the hole it came from and the signature it
+                # answers, which is what the inner link's errors can name.
                 fromOuter =
                   surface:
                   lib.listToAttrs (
                     lib.concatMap (
                       hole:
                       lib.optional (resolved.${hole} != null) (
-                        lib.nameValuePair "${outerPrefix}${hole}" (outerUnit inst.def.${surface}.${hole} resolved.${hole})
+                        lib.nameValuePair "${outerPrefix}${hole}" {
+                          inherit hole;
+                          sig = inst.def.${surface}.${hole};
+                          value = resolved.${hole};
+                        }
                       )
                     ) (lib.attrNames inst.def.${surface})
                   );
@@ -551,20 +590,25 @@ rec {
                       hole: byUnit:
                       lib.mapAttrsToList (
                         contributor: value:
-                        lib.nameValuePair "${outerPrefix}${hole}:${contributor}" (outerUnit inst.def.collects.${hole} value)
+                        lib.nameValuePair "${outerPrefix}${hole}:${contributor}" {
+                          inherit hole value;
+                          sig = inst.def.collects.${hole};
+                        }
                       ) byUnit
                     ) collected
                   )
                 );
+
+                injectedMeta = fromOuter "requires" // fromOuter "optional" // fromOuterCollections;
               in
               if incl == null then
                 null
               else
-                let
-                  injected = fromOuter "requires" // fromOuter "optional" // fromOuterCollections;
-                in
                 link {
-                  synthetic = lib.attrNames injected;
+                  synthetic = lib.mapAttrs (_: i: {
+                    inherit (i) hole;
+                    signature = i.sig.name;
+                  }) injectedMeta;
                   units =
                     incl.units {
                       inputs = inst.inputsChecked;
@@ -575,7 +619,7 @@ rec {
                         mkDeferred = floeLib.mkDeferredFor u;
                       };
                     }
-                    // injected;
+                    // lib.mapAttrs (_: i: outerUnit i.sig i.value) injectedMeta;
                   inherit (incl) defaults policies;
                   inherit catalogue;
                   withinInclusion = u;
@@ -985,6 +1029,18 @@ rec {
         + "${(lib.head unnamedOptionals).hole} = \"${(lib.head unnamedOptionals).candidate}\"; }`, "
         + "or for every unit with `link { defaults.${(lib.head unnamedOptionals).sig.name} = "
         + "\"${(lib.head unnamedOptionals).candidate}\"; }`."
+      )
+    else if unreadInjections != [ ] then
+      throw (
+        "floe link error: inclusion '${toString withinInclusion}' declares a hole that "
+        + "nothing inside it reads.\n  - "
+        + lib.concatMapStringsSep "\n  - " (
+          i: "hole '${i.hole}' (signature '${i.signature}')"
+        ) unreadInjections
+        + "\n\n  Its units: ${lib.concatStringsSep ", " (lib.filter (n: !(isSynthetic n)) instNames)}"
+        + "\n\nA declared hole is something the parent has to supply, so one nothing "
+        + "reads asks a deployer to wire a value that changes nothing. Remove it, or "
+        + "give the unit inside that was meant to read it the hole."
       )
     else if incompatibilities != [ ] then
       throw (

@@ -1274,6 +1274,31 @@ in
     };
   };
 
+  # The cost of declaring an inclusion's holes rather than inferring them, which
+  # Backpack does and this cannot: `units` is a function of `inputs`, so what is
+  # inside is not known until something evaluates, and a floe's interface has to
+  # be readable from its header first. The under-declared direction is the
+  # unfilled-hole error; this is the other one, and without it a deployer is
+  # asked to wire a value that changes nothing.
+  testAnInclusionHoleNothingInsideReadsIsRefused = {
+    expr = fails (
+      floe.link {
+        units = {
+          minter = minter.instantiate { };
+          env =
+            (floe.mkInclusion {
+              name = "roomy";
+              summary = "Fixture: declares a hole nothing inside reads.";
+              requires.deferredThing = DEFERRED_THING;
+              units = _: { insider = insider.instantiate { }; };
+            }).instantiate
+              { };
+        };
+      }
+    );
+    expected = true;
+  };
+
   testExportingFromAUnitThatIsNotThereIsRefused = {
     expr = fails (
       floe.link {

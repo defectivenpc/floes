@@ -78,6 +78,48 @@ level instead, where it is a true statement about the inclusion's own hole.
 any floe, so a parent contributing to an inner collection and reading the
 fold is refused by the check that was already there.
 
+## Where this diverges from the theory it borrows from
+
+MixML's central result is that composition is **closed**: a mixin has
+imports and exports, linking mixins yields a mixin, and functor and
+structure are one notion. Backpack inherits it — a unit with holes is a
+unit. An inclusion being a floe is that property, and it holds at depth: an
+inclusion holds an inclusion, and a test pins two levels because one cannot
+tell an inner link's nodes from its leaves.
+
+Three divergences, recorded because a reader who knows the theory will look
+for them.
+
+**Holes are declared, not inferred.** Backpack computes an including unit's
+holes as the holes of what it includes minus what is filled. Here `units` is
+a function of `inputs`, so what is inside is not known until something
+evaluates — and a floe's interface has to be readable from its header before
+anything does. Inference would cost that property, which is the one that
+makes a link's wiring checkable without running it. The price is that the
+declaration can drift from the units, in both directions: an under-declared
+hole is the unfilled-hole error, and an over-declared one is refused too,
+because a hole nothing reads asks a deployer to wire a value that changes
+nothing.
+
+**Nothing is exported by default.** Backpack re-exports an included unit's
+provisions and thins explicitly; an inclusion exports nothing without
+`exports`. That is ML rather than Backpack, and consistent with sealing
+being the thing floe takes from ML — for infrastructure, what crosses a
+cluster boundary should be a decision rather than a default.
+
+**An inclusion cannot also have a body.** In both MixML and Backpack a unit
+may include _and_ define. This is a simplification with no argument behind
+it beyond less code: a lab wanting to emit its own fragment puts a floe
+inside itself, which works and is arguably tidier, but the restriction is
+not something the theory asks for. If it bites, the way out is to let
+`inclusion` and `body` coexist and merge the body's `out` with the
+propagated one.
+
+One more worth stating because it surprises people: **flattening is not a
+no-op.** Linking `A, B` as an inclusion and then with `C` is not the same as
+linking `A, B, C`, because the inclusion seals. Mixin linking in MixML is
+associative; this is not, and that is sealing working rather than failing.
+
 ## Consequences
 
 Output propagates to the parent with unit names qualified by the inclusion
