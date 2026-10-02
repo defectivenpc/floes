@@ -368,19 +368,40 @@ lib.runTests {
     expected = true;
   };
 
-  # One deliberate mistake still has no test, and still cannot have one.
-  # `builtins.tryEval` catches `throw` and `assert`, and nothing else, so
-  # testability tracks *who reported the failure*:
+  # All three deliberate mistakes have tests now. `builtins.tryEval` catches
+  # `throw` and `assert` and nothing else, so testability tracks *who reported
+  # the failure*, and both of the ones that used to escape were moved by
+  # changing the reporter rather than the message:
   #
-  #   broken.leaky          floe's own `throw`      catchable, tested above
-  #   broken.greedy         floe's own `throw`      catchable, tested above
-  #   broken.interpolating  Nix: cannot coerce      escapes tryEval
+  #   broken.leaky          floe's own `throw`   always was catchable
+  #   broken.greedy         floe's own `throw`   was `infinite recursion`; T.derivedFrom
+  #   broken.interpolating  floe's own `throw`   was Nix's coercion error; __toString
   #
-  # The middle row used to be in the third group. `T.derivedFrom` moved it, which
-  # is the whole argument for rejecting a bad read before evaluating rather than
-  # trying to explain it afterwards. The one that remains is RFC 0001's open
-  # question 1 — deferred transparency in interpolation — and it is pinned in
-  # `examples/refuse.sh`, where a non-zero exit is the assertion.
+  # `examples/refuse.sh` existed for the last row and has been deleted, because
+  # it held the only case that needed a non-zero exit to assert on.
+  #
+  # This answers RFC 0001's open question 1: a deferred value does not propagate
+  # through interpolation, it refuses. Transparent propagation would have split
+  # every prelude type into concrete and deferred variants and made every
+  # signature field declare which it accepts.
+  testInterpolatingADeferredValueIsRefused = {
+    expr = fails nixos.broken.interpolating.out;
+    expected = true;
+  };
+
+  # And it is floe's error rather than Nix's, which is the whole point: the old
+  # one was "cannot coerce a set to a string" with no floe named and nothing
+  # able to wrap it, because nothing runs after a coercion failure.
+  testTheInterpolationErrorNamesTheSourceFloe = {
+    expr =
+      let
+        attempt = builtins.tryEval (
+          builtins.deepSeq nixos.broken.interpolating.out."nixos.config" "reached"
+        );
+      in
+      attempt.success;
+    expected = false;
+  };
 
   # ---- The secret chain, end to end -------------------------------------
   #
@@ -568,8 +589,16 @@ lib.runTests {
   # A site is a complete instruction: read *this*, write it *there*. The path is
   # a list because output keys contain dots — `floe.dev/ca-fingerprint` — and a
   # backend splitting a dotted string would write to the wrong place.
+  # `__toString` is dropped before comparing: it is a function, so it can be
+  # neither compared nor serialised, and that is the whole of what it is for —
+  # interpolating a token is a floe error rather than Nix's uncatchable
+  # coercion failure. `testInterpolatingADeferredValueIsRefused` holds that.
   testASiteSaysWhatToReadAndWhereToPutIt = {
-    expr = lib.head k8s.link.deferredSites;
+    expr =
+      let
+        s = lib.head k8s.link.deferredSites;
+      in
+      s // { token = removeAttrs s.token [ "__toString" ]; };
     expected = {
       unit = "podinfo";
       out = "k8s.manifests";

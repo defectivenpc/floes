@@ -124,6 +124,156 @@ let
     config = unionTy;
   };
 
+  # Where a deferred value will be readable, for the fixtures that mint one.
+  REF = floe.mkSig {
+    name = "fixture.ref";
+    canonicalName = "ref";
+    description = "Fixture: where a deferred value will be readable.";
+    shape = T.record { path = T.str; };
+  };
+
+  # One signature *name*, two shapes. This is what version skew between
+  # repositories looks like: resolution matches on the name, so the link used to
+  # succeed and the consumer then died on `attribute 'port' missing`, naming no
+  # floe and catchable by nothing. ADR 0007.
+  skewed =
+    {
+      provided,
+      required,
+      value,
+      read ? (r: r.host),
+    }:
+    let
+      sigWith =
+        shape:
+        floe.mkSig {
+          name = "SKEW";
+          canonicalName = "skew";
+          description = "Fixture: one name, two shapes.";
+          inherit shape;
+        };
+
+      prov = floe.mkFloe {
+        name = "prov";
+        summary = "Fixture floe for a test suite.";
+        provides.skew = sigWith provided;
+        body = args: { provides.skew = value args; };
+      };
+
+      cons = floe.mkFloe {
+        name = "cons";
+        summary = "Fixture floe for a test suite.";
+        requires.skew = sigWith required;
+        provides.echo = ECHO;
+        body = { requires, ... }: { provides.echo.v = toString (read requires.skew); };
+      };
+    in
+    floe.link {
+      units = {
+        prov = prov.instantiate { };
+        cons = cons.instantiate { };
+      };
+    };
+
+  # The same skew, read through a collection rather than an exactly-one hole: a
+  # collection's members are read through the collector's signature too.
+  skewedCollection =
+    { provided, required }:
+    let
+      sigWith =
+        shape:
+        floe.mkSig {
+          name = "SKEW";
+          canonicalName = "skew";
+          description = "Fixture: one name, two shapes.";
+          inherit shape;
+        };
+
+      prov = floe.mkFloe {
+        name = "prov";
+        summary = "Fixture floe for a test suite.";
+        provides.skew = sigWith provided;
+        body = { ... }: {
+          provides.skew = {
+            host = "h";
+          };
+        };
+      };
+
+      cons = floe.mkFloe {
+        name = "cons";
+        summary = "Fixture floe for a test suite.";
+        collects.skew = sigWith required;
+        provides.echo = ECHO;
+        body = { collects, ... }: {
+          provides.echo.v = toString (lib.length (lib.attrNames collects.skew));
+        };
+      };
+    in
+    floe.link {
+      units = {
+        prov = prov.instantiate { };
+        cons = cons.instantiate { };
+      };
+    };
+
+  # A zero-or-one hole, with switches for the three things that decide it:
+  # whether anything provides it, and whether the deployer named a provider
+  # per-unit or link-wide.
+  optionalLink =
+    {
+      withProvider,
+      binding ? null,
+      default ? null,
+    }:
+    let
+      consumer = floe.mkFloe {
+        name = "consumer";
+        summary = "Fixture floe for a test suite.";
+        optional.issuance = SELF;
+        provides.echo = ECHO;
+        body =
+          {
+            requires,
+            ...
+          }:
+          {
+            provides.echo.v = if requires.issuance == null then "none" else requires.issuance.v;
+          };
+      };
+
+      issuer = floe.mkFloe {
+        name = "issuer";
+        summary = "Fixture floe for a test suite.";
+        provides.it = SELF;
+        body = { ... }: {
+          provides.it = {
+            v = "internal";
+          };
+        };
+      };
+
+      inst = consumer.instantiate { };
+    in
+    floe.link {
+      units = {
+        consumer = if binding == null then inst else inst.bind { issuance = binding; };
+      }
+      // lib.optionalAttrs withProvider { internal = issuer.instantiate { }; };
+      defaults = lib.optionalAttrs (default != null) { SELF = default; };
+    };
+
+  # A derivation, as far as any Nix consumer is concerned. `out` is itself,
+  # which is what made walking one a stack overflow.
+  fakeDrv = rec {
+    type = "derivation";
+    name = "hello";
+    outPath = "/nix/store/0000000000000000000000000000000-hello";
+    drvPath = "/nix/store/1111111111111111111111111111111-hello.drv";
+    out = fakeDrv;
+    all = [ fakeDrv ];
+  };
+
   deployment = fixture.deployment;
 
   # Edges are compared as sorted strings: the linker's list order follows
@@ -593,5 +743,271 @@ in
   testARequiredInputHasNoDefault = {
     expr = deployment.inputs.grafana.adminUser.default or "MISSING";
     expected = null;
+  };
+
+  # ---- Compatibility (ADR 0007) --------------------------------------------
+  #
+  # The failure these exist for: two definitions of one signature name linked
+  # cleanly, and the consumer died several frames later on Nix's
+  # `attribute 'port' missing` — no floe named, no field, not catchable.
+
+  testAProviderMissingAFieldTheRequirerDeclaresIsRefused = {
+    expr = fails (skewed {
+      provided = T.record { host = T.str; };
+      required = T.record {
+        host = T.str;
+        port = T.port;
+      };
+      value = { ... }: { host = "h"; };
+    });
+    expected = true;
+  };
+
+  # The paired positive, and the direction that has to stay legal: extra fields
+  # on the provider are what sealing drops, so widening a signature is a
+  # compatible change and needs no version number.
+  testAProviderWithExtraFieldsAnswersFine = {
+    expr =
+      (skewed {
+        provided = T.record {
+          host = T.str;
+          port = T.port;
+        };
+        required = T.record { host = T.str; };
+        value = { ... }: {
+          host = "h";
+          port = 5432;
+        };
+      }).provides.cons.echo.v;
+    expected = "h";
+  };
+
+  # A refinement answers what it refines: every DNS name is a string. Without
+  # this a provider promising *more* than was asked for would be refused.
+  testARefinementAnswersWhatItRefines = {
+    expr =
+      (skewed {
+        provided = T.record { host = T.dnsName; };
+        required = T.record { host = T.str; };
+        value = { ... }: { host = "db.example.com"; };
+      }).provides.cons.echo.v;
+    expected = "db.example.com";
+  };
+
+  # The one asymmetry. A value that does not exist until after apply cannot
+  # answer a field something reads at eval, and saying so from the headers names
+  # both sides — where the same mistake found at read time named neither.
+  testADeferredProviderCannotAnswerAConcreteRequirer = {
+    expr = fails (skewed {
+      provided = T.record { host = T.deferred T.str; };
+      required = T.record { host = T.str; };
+      value = { floe, ... }: { host = floe.mkDeferred REF { path = "/run/x"; }; };
+    });
+    expected = true;
+  };
+
+  # And the other way round is fine, because such a requirer handles both.
+  testAConcreteProviderAnswersADeferredRequirer = {
+    expr =
+      (skewed {
+        provided = T.record { host = T.str; };
+        required = T.record { host = T.deferred T.str; };
+        value = { ... }: { host = "h"; };
+      }).provides.cons.echo.v;
+    expected = "h";
+  };
+
+  # Variance for a closed set runs the other way: the provider must promise no
+  # more variety than the requirer admits.
+  testAWiderEnumCannotAnswerANarrowerOne = {
+    expr = fails (skewed {
+      provided = T.record {
+        host = T.enum [
+          "a"
+          "b"
+        ];
+      };
+      required = T.record { host = T.enum [ "a" ]; };
+      value = { ... }: { host = "a"; };
+    });
+    expected = true;
+  };
+
+  # A collection's members are read through the collector's signature, so they
+  # are checked the same way. Nothing else in the suite would have caught this.
+  testACollectionsMembersAreCheckedToo = {
+    expr = fails (skewedCollection {
+      provided = T.record { host = T.str; };
+      required = T.record {
+        host = T.str;
+        port = T.port;
+      };
+    });
+    expected = true;
+  };
+
+  # ---- The third arity -----------------------------------------------------
+
+  testAnOptionalHoleWithNoProviderIsNull = {
+    expr = (optionalLink { withProvider = false; }).provides.consumer.echo.v;
+    expected = "none";
+  };
+
+  # The asymmetry with `requires`, and the reason it is here: a provider merely
+  # being present wires nothing, so adding a floe to a link can never silently
+  # change another floe's output. Erroring rather than no-opping, because a
+  # deployer who added the provider and got nothing needs to be told why.
+  testAnOptionalHoleWithAnUnnamedProviderIsRefused = {
+    expr = fails (optionalLink {
+      withProvider = true;
+    });
+    expected = true;
+  };
+
+  testABindingWiresAnOptionalHole = {
+    expr =
+      (optionalLink {
+        withProvider = true;
+        binding = "internal";
+      }).provides.consumer.echo.v;
+    expected = "internal";
+  };
+
+  # The link-wide spelling, so a lab pays one line rather than one per consumer.
+  testADefaultWiresAnOptionalHole = {
+    expr =
+      (optionalLink {
+        withProvider = true;
+        default = "internal";
+      }).provides.consumer.echo.v;
+    expected = "internal";
+  };
+
+  # An unwired hole read nothing, so it is not an edge — which is what keeps it
+  # out of the deploy ordering as well.
+  testAnUnwiredOptionalHoleIsNotAnEdge = {
+    expr = (optionalLink { withProvider = false; }).graph.edges;
+    expected = [ ];
+  };
+
+  testAWiredOptionalHoleIsAnEvalEdge = {
+    expr =
+      map edge
+        (optionalLink {
+          withProvider = true;
+          binding = "internal";
+        }).graph.edges;
+    expected = [ "eval:consumer->internal via issuance" ];
+  };
+
+  # Same argument as for `requires`: an otel-collector that provided
+  # TRACE_INGEST would resolve its own trace backend to itself.
+  testAFloeDoesNotSatisfyItsOwnOptionalHole = {
+    expr = fails (
+      floe.link {
+        units.narcissus =
+          (floe.mkFloe {
+            name = "narcissus";
+            summary = "Fixture floe for a test suite.";
+            provides.it = SELF;
+            optional.it2 = SELF;
+            body = { ... }: {
+              provides.it = {
+                v = "mine";
+              };
+            };
+          }).instantiate
+            { };
+      }
+    );
+    expected = true;
+  };
+
+  # Both singular arities resolve into one `requires` attrset, so a name on both
+  # would drop one of them with nothing saying which.
+  testAHoleDeclaredOnBothSingularSurfacesIsRefused = {
+    expr = fails (
+      floe.link {
+        units.greedy =
+          (floe.mkFloe {
+            name = "greedy";
+            summary = "Fixture: one hole name on two surfaces.";
+            requires.issuance = SELF;
+            optional.issuance = SELF;
+            body = { ... }: { };
+          }).instantiate
+            { };
+      }
+    );
+    expected = true;
+  };
+
+  # A binding on a collected hole was silently ignored — `wiringAll` takes every
+  # provider and never consulted one — so a deployer who wrote it believed it
+  # did something. A collection has nothing to choose.
+  testABindingOnACollectedHoleIsRefused = {
+    expr = fails (
+      floe.link {
+        units.collector =
+          (
+            (floe.mkFloe {
+              name = "collector";
+              summary = "Fixture: collects and is bound anyway.";
+              collects.mine = SELF;
+              body = { ... }: { };
+            }).instantiate
+              { }
+          ).bind
+            { mine = "whoever"; };
+      }
+    );
+    expected = true;
+  };
+
+  # ---- Packages (ADR 0008) -------------------------------------------------
+
+  testAPackageAcceptsADerivation = {
+    expr = (T.checkValue [ "fixture" ] T.package fakeDrv).outPath;
+    expected = "/nix/store/0000000000000000000000000000000-hello";
+  };
+
+  # The store path a derivation coerces to is the same thing by the time it
+  # reaches output, so both are the type.
+  testAPackageAcceptsAStorePath = {
+    expr = T.checkValue [ "fixture" ] T.package "/nix/store/x-hello";
+    expected = "/nix/store/x-hello";
+  };
+
+  testAPackageRefusesSomethingElse = {
+    expr = fails (T.checkValue [ "fixture" ] T.package 42);
+    expected = true;
+  };
+
+  # The crash this closes: a derivation is an attrset whose `out` is itself, so
+  # the token scan walked it until the stack ran out — and a stack overflow is
+  # not catchable, so `tryEval` could not even contain it. Every NixOS module
+  # that writes `environment.systemPackages` puts one here.
+  testADerivationInOutputDoesNotBreakTheTokenScan = {
+    expr =
+      let
+        OUT = floe.mkSig {
+          name = "fixture.out";
+          canonicalName = "fixtureOut";
+          description = "Fixture: output holding a package.";
+          shape = T.record { pkg = T.package; };
+        };
+        f = floe.mkFloe {
+          name = "with-package";
+          summary = "Fixture: emits a derivation.";
+          out.fixtureOut = OUT;
+          body = { ... }: {
+            out.fixtureOut = {
+              pkg = fakeDrv;
+            };
+          };
+        };
+      in
+      (floe.link { units.a = f.instantiate { }; }).deferredSites;
+    expected = [ ];
   };
 }

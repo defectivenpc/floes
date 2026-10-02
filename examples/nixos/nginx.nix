@@ -9,7 +9,7 @@
 # NETWORK, and networking collects nginx's PORT_CLAIM. Under stock NixOS
 # laziness that is fine, and it is fine here, because nginx reads `domain` —
 # which comes from networking's inputs, not from the collection. Read
-# `openPorts` instead and it recurses; see `broken.nix` and `../refuse.sh`.
+# `openPorts` instead and it recurses; see `broken.nix`.
 {
   lib,
   floe,

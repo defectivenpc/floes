@@ -7,6 +7,68 @@ The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- **`mkFloe { optional = { … }; }`**, the third arity: zero or one. The hole
+  a floe can do without — grafana's OIDC, a collector's trace backend, and
+  what NixOS spells as `mkIf config.services.foo.enable`. Resolved values
+  land in `requires` beside the exactly-one holes, as the value or as
+  `null`.
+
+  **It resolves only when a deployer names the provider**, by `.bind` or by
+  the link's `defaults`; a link holding an unnamed provider for an optional
+  hole is an error naming the candidate. So adding a floe to a link can
+  never silently change another floe's output, which is the property
+  `requires` gets for free by erroring on a second provider.
+
+- **`link` checks that a provider answers the requirer's signature.**
+  Resolution keys on a signature's `name`, a bare string, and nothing
+  compared the shapes behind it — so two definitions of one name linked
+  cleanly and the consumer died on Nix's `attribute 'port' missing`, several
+  frames away, naming no floe, no field and no provider, and not catchable
+  by `tryEval`. The provider must now be a width-supertype of the requirer,
+  checked from headers before anything evaluates, with one asymmetry: a
+  concrete provider answers a `T.deferred` requirer and the reverse is
+  refused. This is also the signature-evolution rule, which is why there is
+  no version field.
+  [ADR 0007](docs/adr/0007-a-provider-must-answer-the-requirers-signature.md)
+
+- **`T.package`**, a derivation or the store path it coerces to: the one way
+  something built crosses a floe boundary. A package **set** is not a
+  signature — a floe takes the packages it needs as ordinary inputs, one at
+  a time, because a package set can be neither hashed for a cache key nor
+  serialised. [ADR 0008](docs/adr/0008-per-floe-eval-stays-cacheable.md)
+
+### Fixed
+
+- **A derivation in `out` no longer takes the evaluation down.** A
+  derivation is an attrset whose `out` is itself, so the token scan walked
+  it until the stack ran out — and a stack overflow is not catchable, so
+  reading `link.deferredSites` in any link with a package in its output was
+  an uncatchable crash. Every NixOS module writing
+  `environment.systemPackages` hits it.
+
+- **Interpolating a deferred value is now floe's error, and testable.** It
+  was Nix's "cannot coerce a set to a string", which named no floe, arrived
+  before anything typed saw the value, and escaped `builtins.tryEval` — so
+  it was the one deliberate mistake in `examples/` that no test could hold.
+  The token carries a `__toString` that throws. RFC 0001's open question 1
+  is answered: a deferred value does not propagate through interpolation, it
+  refuses. `examples/refuse.sh` existed for that one case and is deleted.
+
+  The cost, deliberately taken: `builtins.toJSON` prefers `__toString`, so a
+  token reaching the serialised IR throws too — the same refusal, since a
+  token there means a backend is about to ship a placeholder.
+
+- **A `.bind` naming a collected hole is refused rather than ignored.**
+  `wiringAll` takes every provider and never consulted a binding, so a
+  deployer who wrote one believed it did something. A collection's arity is
+  every provider; there is nothing to choose.
+
+- **A hole name on both `requires` and `optional` is refused.** Both resolve
+  into one `requires` attrset, so one would be dropped with nothing saying
+  which.
+
 ### Changed
 
 - **`mkOutputKind` is gone; `mkSig` covers both.** A signature already _was_

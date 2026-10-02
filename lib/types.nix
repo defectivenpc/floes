@@ -67,6 +67,23 @@ rec {
     check = v: isString v && match "[a-z0-9]([-a-z0-9.]*[a-z0-9])?" v != null;
   };
 
+  # A built thing, as a derivation or as the store path one coerces to. The one
+  # way something built crosses a floe boundary, and the reason `out` can carry
+  # `environment.systemPackages` at all — `T.str` refuses a derivation, and
+  # `T.any` admits it and then meets `scanTokens`.
+  #
+  # Distinct from the package *set* a body builds with: which nixpkgs, which
+  # overlays and which system are the deployer's choice, so they arrive as an
+  # ordinary input under a native NixOS option type. A package set is neither
+  # hashable for a cache key nor serialisable; one package is both, since a
+  # derivation hashes as its `drvPath` and `toJSON`s as its `outPath`.
+  # ADR 0008.
+  package = {
+    tag = "package";
+    name = "package (derivation or store path)";
+    check = v: lib.isDerivation v || isString v;
+  };
+
   enum = values: {
     tag = "enum";
     inherit values;
@@ -131,6 +148,115 @@ rec {
   };
 
   isDeferredToken = v: isAttrs v && (v.__deferred or false) == true;
+
+  # ---- Compatibility ------------------------------------------------------
+  #
+  # Whether a provider's shape answers a requirer's. Resolution keys on a
+  # signature's `name`, a bare string, so two definitions of one name used to
+  # link cleanly and then fail where the value was read —
+  # `attribute 'port' missing`, naming no floe, no field and no provider, and
+  # not catchable by `tryEval`. This is the check that makes a third-party
+  # floe's version skew an error at link. ADR 0007.
+  #
+  # The rule is provider `<:` requirer with ordinary covariance: the provider
+  # must promise at least as much, and extra fields are what sealing drops.
+
+  # A refinement satisfies what it refines: every port is an int, every DNS
+  # name a string. Without this, a provider promising *more* than the requirer
+  # asked for would be refused, which is the wrong direction.
+  refines = {
+    port = "int";
+    dnsName = "str";
+    url = "str";
+  };
+
+  # mismatches :: [string] -> providerType -> requirerType -> [string]
+  # Empty when the provider answers. One entry per incompatible field, each
+  # naming its dotted path, because a signature that moved usually moved once.
+  mismatches =
+    path: p: r:
+    let
+      pt = p.tag or "?";
+      rt = r.tag or "?";
+      fail = pth: msg: [ "${if pth == [ ] then "<value>" else lib.concatStringsSep "." pth}: ${msg}" ];
+      no = fail path;
+      offers = "provider offers ${p.name or "?"}, requirer declared ${r.name or "?"}";
+    in
+    # A requirer that accepts anything is answered by anything.
+    if rt == "any" then
+      [ ]
+    # `derivedFrom` says where a field came from, not what it is.
+    else if pt == "derivedFrom" then
+      mismatches path p.inner r
+    else if rt == "derivedFrom" then
+      mismatches path p r.inner
+    # The one asymmetry, and the valuable one. A concrete value answers a
+    # requirer that declared the field deferred, because that requirer already
+    # handles both. The reverse cannot work: the value does not exist at the
+    # moment the requirer would read it, so this moves a read-time error to the
+    # header check, where it can name both sides.
+    else if rt == "deferred" then
+      mismatches path (if pt == "deferred" then p.inner else p) r.inner
+    else if pt == "deferred" then
+      no (
+        "${offers}. A value that does not exist until after apply cannot satisfy "
+        + "a field read at evaluation time."
+      )
+    else if rt == "nullOr" then
+      mismatches path (if pt == "nullOr" then p.inner else p) r.inner
+    # A provider that may be null, or may be anything, against a requirer that
+    # said neither.
+    else if pt == "any" || pt == "nullOr" then
+      no offers
+    else if pt != rt then
+      (if (refines.${pt} or null) == rt then [ ] else no offers)
+    else if pt == "record" then
+      lib.concatLists (
+        lib.mapAttrsToList (
+          f: rty:
+          if p.fields ? ${f} then
+            mismatches (path ++ [ f ]) p.fields.${f} rty
+          else
+            fail (path ++ [ f ]) "the requirer declares it and the provider's signature has no such field"
+        ) r.fields
+      )
+    else if pt == "listOf" || pt == "attrsOf" then
+      mismatches path p.inner r.inner
+    else if pt == "enum" then
+      (
+        let
+          extra = lib.subtractLists r.values p.values;
+        in
+        if extra == [ ] then
+          [ ]
+        else
+          no (
+            "provider may also be ${lib.concatMapStringsSep ", " (v: "\"${toString v}\"") extra}, "
+            + "which the requirer's ${r.name} does not admit"
+          )
+      )
+    else if pt == "taggedUnion" then
+      (
+        let
+          extra = lib.subtractLists (lib.attrNames r.variants) (lib.attrNames p.variants);
+        in
+        if extra != [ ] then
+          no (
+            "provider may also be variant(s) ${lib.concatStringsSep ", " extra}, which the "
+            + "requirer does not admit"
+          )
+        else
+          lib.concatLists (
+            lib.mapAttrsToList (v: pty: mismatches (path ++ [ v ]) pty r.variants.${v}) p.variants
+          )
+      )
+    # An option type holds functions, so there is nothing to compare
+    # structurally. Its `name` is what nixpkgs itself identifies it by.
+    else if pt == "moduleType" then
+      (if (p.inner.name or null) == (r.inner.name or null) then [ ] else no offers)
+    else
+      # Same leaf tag, and a leaf carries nothing further to disagree about.
+      [ ];
 
   # checkValue :: [string] -> type -> value -> value
   # Throws with a dotted path on mismatch; returns the (restricted) value.

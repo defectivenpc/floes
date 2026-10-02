@@ -75,14 +75,17 @@ in
 
   # 3. The same mistake, written as string interpolation.
   #
-  # Here the token is coerced before anything typed ever sees it, so the error
-  # is Nix's: "cannot coerce a set to a string: { __deferred = true; ... }".
-  # It is worse than (2) — no path, no explanation — but not useless, because
-  # Nix prints the token and `source = "postgres"` is right there in it.
+  # This used to be the worst error in the example and is now an ordinary one.
+  # The token was coerced before anything typed saw it, so the report was Nix's
+  # — "cannot coerce a set to a string: { __deferred = true; ... }" — with no
+  # path, no floe named, and no way for library code to improve it, because
+  # nothing runs after a coercion failure. It also escaped `tryEval`, so no
+  # test could hold it and a shell script asserted on the exit status instead.
   #
-  # This is RFC 0001's open question 1, deferred transparency in interpolation,
-  # still open. It is the one place in this example where the diagnosis comes
-  # from the reader rather than from floe.
+  # The token now carries a `__toString` that throws floe's own message, which
+  # is RFC 0001's open question 1 answered: a deferred value does not propagate
+  # through interpolation, it refuses. Transparent propagation would have split
+  # every prelude type into concrete and deferred variants.
   interpolating = floe.mkFloe {
     name = "interpolating";
     summary = "Broken on purpose: interpolates a deferred secret into a string.";

@@ -48,6 +48,30 @@ rec {
         source = instName;
         retrieval = sig.name;
         ref = types.checkValue [ instName "deferred" sig.name ] sig.shape ref;
+
+        # Interpolating a token used to be Nix's "cannot coerce a set to a
+        # string", which names no floe, arrives before anything typed sees the
+        # value, and escapes `builtins.tryEval` — so whether the mistake was
+        # caught at all depended on who reported it, and this one could not even
+        # be tested. A `__toString` that throws makes it floe's own error and
+        # testable, which is RFC 0001's open question 1 answered: a deferred
+        # value does not propagate through interpolation, it refuses.
+        #
+        # The cost, deliberately taken: `builtins.toJSON` prefers `__toString`,
+        # so a token reaching the serialised IR now throws too. That is the same
+        # correct refusal — a token in serialised output means a backend is about
+        # to ship a placeholder to the world — and the IR serialises tokens
+        # through `link.deferredSites`, which intends to.
+        __toString =
+          _:
+          throw (
+            "floe '${instName}': a deferred value was interpolated into a string. It "
+            + "does not exist until after apply — it will be readable via "
+            + "'${sig.name}' once '${instName}' has been applied — so there is "
+            + "nothing to interpolate here. Read the concrete field beside it (a "
+            + "path, a ref) and let a backend substitute the value, or declare the "
+            + "field that holds this `T.deferred` too."
+          );
       };
 
   mkFloe =
@@ -58,6 +82,24 @@ rec {
 
       inputs ? { },
       requires ? { },
+
+      # optional :: { Hole -> Signature }
+      #
+      # The third arity: zero or one. `requires` is exactly one and `collects`
+      # is every provider; this is the hole a floe can do without — grafana's
+      # OIDC, a collector's trace backend — and it is what NixOS spells as
+      # `mkIf config.services.foo.enable`, which is everywhere in nixpkgs.
+      #
+      # It resolves only when a deployer names the provider, by `.bind` or by
+      # the link's `defaults`. Presence alone wires nothing, so adding a floe to
+      # a link can never silently change another floe's output — the property
+      # `requires` gets for free by erroring on a second provider, and the one
+      # that makes `enable`-style conditionals frightening at scale.
+      #
+      # Resolved values land in `requires` beside the exactly-one holes, as the
+      # value or as `null`, because a body wanting "the thing if it is there"
+      # should read one place. The arity is a fact about the declaration.
+      optional ? { },
 
       collects ? { },
       provides ? { },
@@ -205,6 +247,7 @@ rec {
               summary
               inputs
               requires
+              optional
               collects
               provides
               out

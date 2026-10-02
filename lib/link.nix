@@ -103,6 +103,7 @@ in
           )
           [
             "requires"
+            "optional"
             "collects"
             "provides"
             "out"
@@ -129,7 +130,44 @@ in
           ) es
         ) ambiguous;
 
+      # A unit answering its own hole. Both singular arities, because the
+      # argument is the same for each: an otel-collector that provided
+      # TRACE_INGEST would resolve its own trace backend to itself and export
+      # into its own receiver.
       selfResolutions = lib.concatMap (
+        u:
+        let
+          inst = getInstance u;
+          onSurface =
+            surface: verb:
+            lib.concatLists (
+              lib.mapAttrsToList (
+                hole: sig:
+                map (
+                  p: "floe '${u}' ${verb} '${sig.name}' as hole '${hole}' and also provides it (as ${p.provideName})"
+                ) (lib.filter (p: p.instName == u) (providersOf sig.name))
+              ) inst.def.${surface}
+            );
+        in
+        onSurface "requires" "requires" ++ onSurface "optional" "optionally requires"
+      ) instNames;
+
+      # One name on two singular surfaces of one floe. They resolve into one
+      # `requires` attrset, so without this one of them is silently dropped.
+      surfaceCollisions = lib.concatMap (
+        u:
+        let
+          def = (getInstance u).def;
+        in
+        map (h: "floe '${u}' declares hole '${h}' in both `requires` and `optional`") (
+          lib.intersectLists (lib.attrNames def.requires) (lib.attrNames def.optional)
+        )
+      ) instNames;
+
+      # An optional hole nobody named, in a link that has a provider for it. The
+      # no-op would be defensible and is not what a deployer who added the
+      # provider expects, so it is an error that names the candidate.
+      unnamedOptionals = lib.concatMap (
         u:
         let
           inst = getInstance u;
@@ -137,10 +175,29 @@ in
         lib.concatLists (
           lib.mapAttrsToList (
             hole: sig:
-            map (
-              p: "floe '${u}' requires '${sig.name}' as hole '${hole}' and also provides it (as ${p.provideName})"
-            ) (lib.filter (p: p.instName == u) (providersOf sig.name))
-          ) inst.def.requires
+            let
+              s = selectionFor u hole sig;
+            in
+            lib.optional (s.want == null && s.ps != [ ]) {
+              inherit u hole sig;
+              candidate = (lib.head s.ps).instName;
+              describe = describeProviders s.ps;
+            }
+          ) inst.def.optional
+        )
+      ) instNames;
+
+      # A `.bind` naming a collected hole. Silently ignored until now, because
+      # `wiringAll` takes every provider and never consulted a binding — so a
+      # deployer who wrote one believed it did something. A collection's arity is
+      # every provider; there is nothing there to choose.
+      collectBindings = lib.concatMap (
+        u:
+        let
+          inst = getInstance u;
+        in
+        map (hole: "unit '${u}' binds hole '${hole}', which collects '${inst.def.collects.${hole}.name}'") (
+          lib.filter (h: inst.def.collects ? ${h}) (lib.attrNames inst.bindings)
         )
       ) instNames;
 
@@ -167,39 +224,59 @@ in
         u: hole: sig:
         (getInstance u).bindings.${hole} or (defaults.${sig.name} or null);
 
-      narrowed =
-        u: hole: sig: ps:
+      # What a hole could resolve to, and whether a deployer said which. Shared
+      # by both singular arities, which differ only in what they do with it:
+      # `requires` treats one provider as the answer, `optional` treats an
+      # unnamed one as not wired.
+      selectionFor =
+        u: hole: sig:
         let
           want = wantedBy u hole sig;
+          ps = providersOf sig.name;
           matches = p: p.instName == want || "${p.instName}/${p.provideName}" == want;
-          kept = lib.filter matches ps;
         in
-        if want == null then
-          ps
+        {
+          inherit want ps;
+          kept = if want == null then ps else lib.filter matches ps;
+          explicit = (getInstance u).bindings ? ${hole};
+        };
+
+      tooManyNamed =
+        u: hole: sig: s:
+        throw (
+          "floe link error: '${s.want}' provides '${sig.name}' more than once: "
+          + "${describeProviders s.kept}. Name the provide too, as `<unit>/<provide>`."
+        );
+
+      bindNamesNothing =
+        u: hole: sig: s:
+        throw (
+          "floe link error: unit '${u}' binds hole '${hole}' to '${s.want}', which does not "
+          + "provide '${sig.name}' here. Provided by: ${describeProviders s.ps}."
+        );
+
+      narrowed =
+        u: hole: sig:
+        let
+          s = selectionFor u hole sig;
+        in
+        if s.want == null then
+          s.ps
         # A default that names nothing here is not an error: it is a default for
         # a signature this link may not even use. A `.bind` that names nothing is.
-        else if kept == [ ] then
-          if (getInstance u).bindings ? ${hole} then
-            throw (
-              "floe link error: unit '${u}' binds hole '${hole}' to '${want}', which does not "
-              + "provide '${sig.name}' here. Provided by: ${describeProviders ps}."
-            )
-          else
-            ps
-        else if lib.length kept > 1 then
-          throw (
-            "floe link error: '${want}' provides '${sig.name}' more than once: "
-            + "${describeProviders kept}. Name the provide too, as `<unit>/<provide>`."
-          )
+        else if s.kept == [ ] then
+          if s.explicit then bindNamesNothing u hole sig s else s.ps
+        else if lib.length s.kept > 1 then
+          tooManyNamed u hole sig s
         else
-          kept;
+          s.kept;
 
       wiringOne = lib.mapAttrs (
         u: inst:
         lib.mapAttrs (
           hole: sig:
           let
-            ps = narrowed u hole sig (providersOf sig.name);
+            ps = narrowed u hole sig;
           in
           if ps == [ ] then
             let
@@ -229,13 +306,90 @@ in
         ) inst.def.requires
       ) (lib.genAttrs instNames getInstance);
 
-      # The second arity: every provider rather than the one. This link's own
+      # Zero or one, and the asymmetry with `requires` is the point: a provider
+      # merely being present wires nothing. Otherwise adding a floe to a link
+      # rewrites another floe's output with nothing saying so, which is the
+      # action at a distance that makes `enable` flags frightening once a
+      # configuration is large enough that nobody reads all of it.
+      #
+      # So an unnamed provider is an error rather than a silent no-op, because a
+      # deployer who added kanidm and got no OIDC needs to be told why.
+      wiringOptional = lib.mapAttrs (
+        u: inst:
+        lib.mapAttrs (
+          hole: sig:
+          let
+            s = selectionFor u hole sig;
+          in
+          # Unnamed is unwired. That a provider is nonetheless present is
+          # refused, as `unnamedOptionals` below, rather than thrown from here:
+          # a refusal belongs in the preflight with the others, where it is
+          # reported rather than escaping from whatever forced it first.
+          if s.want == null then
+            null
+          # A `defaults` entry naming something absent leaves the hole unfilled,
+          # which is exactly what this arity is for. An explicit `.bind` naming
+          # nothing is still the deployer being wrong about their own link.
+          else if s.kept == [ ] then
+            (if s.explicit then bindNamesNothing u hole sig s else null)
+          else if lib.length s.kept > 1 then
+            tooManyNamed u hole sig s
+          else
+            lib.head s.kept
+        ) inst.def.optional
+      ) (lib.genAttrs instNames getInstance);
+
+      # The third arity: every provider rather than the one. This link's own
       # units, and never the collecting unit itself — a floe that answers the
       # signature reads its own provide and needs no link to do it.
       wiringAll = lib.mapAttrs (
         u: inst:
         lib.mapAttrs (_hole: sig: lib.filter (p: p.instName != u) (providersOf sig.name)) inst.def.collects
       ) (lib.genAttrs instNames getInstance);
+
+      # ---- Compatibility ----------------------------------------------------
+      #
+      # Resolution matches a signature by `name`, a bare string. Nothing used to
+      # compare the shapes behind it, so two definitions of one name linked
+      # cleanly and then failed where the value was read —
+      # `attribute 'port' missing`, naming no floe and catchable by nothing.
+      # That is the error a third-party floe pinning an older copy of a
+      # signature gets, and it is why this check exists. ADR 0007.
+      #
+      # Header-only, so it costs nothing per value and reports before any body
+      # evaluates. Both facts it needs are in the declarations: which provide
+      # answered, and what each side declared.
+      incompatible =
+        u: hole: verb: sig: p:
+        let
+          provided = (getInstance p.instName).def.provides.${p.provideName};
+          ms = types.mismatches [ ] provided.shape sig.shape;
+        in
+        lib.optional (ms != [ ]) (
+          "'${p.instName}' provides '${provided.name}' (as ${p.provideName}) but cannot answer "
+          + "what '${u}' ${verb} as hole '${hole}':\n      - "
+          + lib.concatStringsSep "\n      - " ms
+        );
+
+      incompatibilities = lib.concatMap (
+        u:
+        let
+          def = (getInstance u).def;
+        in
+        lib.concatLists (
+          lib.mapAttrsToList (hole: p: incompatible u hole "requires" def.requires.${hole} p) wiringOne.${u}
+        )
+        ++ lib.concatLists (
+          lib.mapAttrsToList (
+            hole: p: if p == null then [ ] else incompatible u hole "optionally requires" def.optional.${hole} p
+          ) wiringOptional.${u}
+        )
+        ++ lib.concatLists (
+          lib.mapAttrsToList (
+            hole: ps: lib.concatMap (incompatible u hole "collects" def.collects.${hole}) ps
+          ) wiringAll.${u}
+        )
+      ) instNames;
 
       # ---- Withholding a field derived from a collection --------------------
       #
@@ -298,9 +452,14 @@ in
 
             valueOf = p: self.${p.instName}.sealedProvides.${p.provideName};
 
-            resolved = lib.mapAttrs (
-              hole: p: withheld u p.instName inst.def.requires.${hole} (valueOf p)
-            ) wiringOne.${u};
+            # Both singular arities land in one attrset, because a body wanting
+            # "the thing if it is there" should read one place. An unwired
+            # optional hole is `null`.
+            resolved =
+              lib.mapAttrs (hole: p: withheld u p.instName inst.def.requires.${hole} (valueOf p)) wiringOne.${u}
+              // lib.mapAttrs (
+                hole: p: if p == null then null else withheld u p.instName inst.def.optional.${hole} (valueOf p)
+              ) wiringOptional.${u};
 
             # Keyed by the providing unit, so a consumer folding over them
             # can name one, and two providers cannot collide.
@@ -349,6 +508,12 @@ in
               token = v;
             }
           ]
+        # A derivation is an attrset whose `out` is itself, so walking it is a
+        # stack overflow — and one `tryEval` cannot catch, which made a package
+        # in `out` an uncatchable crash in any link whose sites were read. It
+        # holds no token either: a built thing is opaque. ADR 0008.
+        else if lib.isDerivation v then
+          [ ]
         else if builtins.isAttrs v then
           lib.concatLists (lib.mapAttrsToList (k: scanTokens (at ++ [ k ])) v)
         else if builtins.isList v then
@@ -393,6 +558,20 @@ in
           via = hole;
           kind = "eval";
         }) wiringOne.${u}
+        # A hole that resolved. An unwired optional one is not an edge, because
+        # nothing was read.
+        ++ lib.concatMap (
+          hole:
+          let
+            p = wiringOptional.${u}.${hole};
+          in
+          lib.optional (p != null) {
+            from = u;
+            to = p.instName;
+            via = hole;
+            kind = "eval";
+          }
+        ) (lib.attrNames wiringOptional.${u})
         ++ lib.concatLists (
           lib.mapAttrsToList (
             hole: ps:
@@ -485,6 +664,7 @@ in
 
         wiring = {
           one = wiringOne;
+          optional = wiringOptional;
           all = wiringAll;
         };
       };
@@ -508,11 +688,52 @@ in
         + "and no error saying so.\n\nEither instantiate it once, or make the "
         + "floe key its output by `config.floe.name` and drop `singleton`."
       )
+    else if surfaceCollisions != [ ] then
+      throw (
+        "floe link error: a hole name is declared on two singular surfaces.\n  - "
+        + lib.concatStringsSep "\n  - " surfaceCollisions
+        + "\n\nBoth resolve into `requires`, so one of them would be dropped with "
+        + "nothing saying which. Pick the arity the floe means: `requires` if it "
+        + "cannot work without the thing, `optional` if it can."
+      )
+    else if collectBindings != [ ] then
+      throw (
+        "floe link error: a binding names a collected hole.\n  - "
+        + lib.concatStringsSep "\n  - " collectBindings
+        + "\n\nA collection's arity is every provider in the link, so there is "
+        + "nothing for a binding to choose, and this one was being ignored. Remove "
+        + "it, or declare the hole `requires` or `optional` if exactly one provider "
+        + "is what the floe meant."
+      )
     else if selfResolutions != [ ] then
       throw (
         "floe link error: a unit does not satisfy its own hole.\n  - "
         + lib.concatStringsSep "\n  - " selfResolutions
         + "\n\nRead the provide directly; it is in scope and needs no link."
+      )
+    else if unnamedOptionals != [ ] then
+      throw (
+        "floe link error: an optional hole has a provider that nobody named.\n  - "
+        + lib.concatMapStringsSep "\n  - " (
+          o:
+          "unit '${o.u}' optionally requires '${o.sig.name}' as hole '${o.hole}', provided "
+          + "here by ${o.describe}"
+        ) unnamedOptionals
+        + "\n\nAn optional hole is never wired by a provider merely being present, so "
+        + "nothing is connected and the unit would quietly run without it. That is what "
+        + "keeps adding a floe from silently changing another floe's output.\n\n"
+        + "Wire it for one unit with `.bind { "
+        + "${(lib.head unnamedOptionals).hole} = \"${(lib.head unnamedOptionals).candidate}\"; }`, "
+        + "or for every unit with `link { defaults.${(lib.head unnamedOptionals).sig.name} = "
+        + "\"${(lib.head unnamedOptionals).candidate}\"; }`."
+      )
+    else if incompatibilities != [ ] then
+      throw (
+        "floe link error: a provider cannot answer the signature a unit asked for.\n  - "
+        + lib.concatStringsSep "\n  - " incompatibilities
+        + "\n\nResolution matches a signature by name, so two definitions of one name "
+        + "link and then fail wherever the value is read, naming no floe. Widen the "
+        + "provider's signature, or narrow the requirer's to the fields it uses."
       )
     else if violations != [ ] then
       throw ("floe policy violation(s):\n  - " + lib.concatStringsSep "\n  - " violations)

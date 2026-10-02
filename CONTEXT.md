@@ -56,7 +56,25 @@ sits on is what makes it an input or an output.
 
 **Hole**: A signature a floe requires and does not implement. The arity is a
 property of the hole rather than of the signature: `requires` is exactly
-one, `collects` is every provider. _Avoid_: dependency, slot.
+one, `optional` is zero or one, `collects` is every provider. _Avoid_:
+dependency, slot.
+
+**Optional hole**: A hole a floe can do without, named in `optional`. It
+resolves only when a deployer names the provider — by `.bind` or by the
+link's `defaults` — and the body reads `null` otherwise. Presence alone
+wires nothing, so adding a floe to a link never silently changes another
+floe's output. The arity, not a second kind of hole.
+
+**Compatibility**: Whether a provider's signature answers a requirer's. The
+provider's shape must be a width-supertype of the requirer's: every field
+the requirer declares is present and agrees, and extra fields on the
+provider are what sealing drops. Checked from headers, before anything
+evaluates. A concrete value satisfies a requirer that declared it deferred;
+the reverse is refused. This is also the rule for signature evolution —
+adding a field is compatible, removing or retyping one is not — which is why
+there is no version number. An emitted signature has no requirer, so nothing
+checks two floes that emit one name against each other, deliberately.
+_Avoid_: structural typing, subsumption.
 
 **Provide**: What a floe answers, checked and restricted to its signature on
 the way out.
@@ -99,6 +117,13 @@ distinct retrievals a backend must implement are `link.deferredRetrievals`.
 A provide carrying a token is not a site: only output is something a backend
 substitutes into.
 
+**Package**: A derivation or a store path, typed `T.package`, which is the
+one way a built thing crosses a floe boundary. A floe takes the _packages_
+it needs as ordinary inputs under a native NixOS option type, one at a time,
+and never a whole package set: which nixpkgs, which overlays and which
+system are the deployer's choice, and a package set can be neither hashed
+for a cache key nor serialised.
+
 **Derived field**: A field its provider computed by folding a collection.
 The linker withholds it from any peer that contributes to that same
 collection, because reading it there would be a cycle through the fold.
@@ -118,6 +143,25 @@ a floe does not know its peers' names.
 **Default**: The same decision made once for a whole link rather than per
 consumer, so adding a second provider of something does not break every
 consumer that has no opinion about which one it wants.
+
+**Inclusion**: A floe whose body is a link, so a lab holding clusters is the
+same mechanism as a cluster holding floes rather than a second one beside
+it. It exports a declared subset of what its units provide, and may leave an
+inner hole unfilled for the parent to fill — which is what makes one cluster
+reusable across labs. Backpack's `include`. _Avoid_: scope, nesting,
+sub-link.
+
+**Export signature**: The signature an inclusion re-exports a provide under,
+usually narrower than the one inside. How a value that means something only
+in the link that produced it stays there: the boundary declares what crosses
+and sealing drops the rest, rather than a field carrying a locality marking.
+_Avoid_: local, uncrossable.
+
+**Cycle**: A group of units whose holes resolve to each other. Derived, not
+declared — the holes and provides are in the headers, so the linker knows
+every cycle before a body evaluates. A cycle stays legal, because laziness
+resolves it and the examples need it; naming it is what lets every unit
+outside one be evaluated alone. _Avoid_: recursion, knot.
 
 **Phase**: How many deploy edges deep a unit sits, derived from deferred
 tokens in output data. Nothing declares an ordering; nothing may.

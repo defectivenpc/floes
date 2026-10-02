@@ -13,7 +13,6 @@
 
 ```bash
 nix flake check          # both links, each also evaluated as a real NixOS system
-./examples/refuse.sh     # the one failure no Nix test can hold
 ./examples/shell-check.sh # what the emitted shell actually does
 ./bench/run.sh           # per-floe cost, by body weight and body form
 ```
@@ -254,14 +253,15 @@ reads `domain`.
 That also made the failure **testable**, which it had not been:
 `builtins.tryEval` catches only `throw` and `assert`, so whether a failure
 can be tested tracks _who reported it_. Rejecting the bad read up front
-moved it from Nix's report to floe's. One case remains on the wrong side of
-that line — [`nixos/broken.nix`](nixos/broken.nix)'s `interpolating`, where
-a deferred token is coerced by string interpolation before anything typed
-sees it, which is RFC 0001's open question 1. No test can hold it and no
-library code can wrap them in a better message, because nothing runs after
-them. A readable error for a structural read in a cycle has to come from
-rejecting the cycle _before_ any body evaluates — which is what RFC 0001's
-stratification check would do, and why it is not cosmetic.
+moved it from Nix's report to floe's.
+
+Every deliberate mistake in [`nixos/broken.nix`](nixos/broken.nix) is now on
+the right side of that line. The last one to move was `interpolating`, where
+a deferred token was coerced by string interpolation before anything typed
+saw it: the token carries a `__toString` that throws floe's own message, so
+RFC 0001's open question 1 is answered — a deferred value does not propagate
+through interpolation, it refuses. `examples/refuse.sh` existed to assert on
+that one case with an exit status and has been deleted.
 
 **There is still no real escape hatch.** A deployer needing a flag no floe
 exposes can fork the floe, or patch the fragment on its way out — which

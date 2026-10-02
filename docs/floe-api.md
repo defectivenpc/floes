@@ -18,9 +18,9 @@ for Kubernetes.
 ## `mkFloe`
 
 ```nix
-mkFloe { name, summary, inputs ? {}, requires ? {}, collects ? {},
-         provides ? {}, out ? {}, modules ? [], body ? null,
-         singleton ? false }
+mkFloe { name, summary, inputs ? {}, requires ? {}, optional ? {},
+         collects ? {}, provides ? {}, out ? {}, modules ? [],
+         body ? null, singleton ? false }
 ```
 
 | Argument    | Required | Type                   | Meaning                                               |
@@ -29,6 +29,7 @@ mkFloe { name, summary, inputs ? {}, requires ? {}, collects ? {},
 | `summary`   | yes      | string                 | one line saying what it installs                      |
 | `inputs`    | no       | attrset of `mkOption`s | what the deployer decides — native NixOS option types |
 | `requires`  | no       | attrset of signatures  | exactly one provider each                             |
+| `optional`  | no       | attrset of signatures  | zero or one; `null` when unwired                      |
 | `collects`  | no       | attrset of signatures  | every provider, keyed by unit; may be empty           |
 | `provides`  | no       | attrset of signatures  | what it offers back                                   |
 | `out`       | no       | attrset of signatures  | what it emits                                         |
@@ -42,14 +43,51 @@ out of it, so the pattern stays closed _and_ the author gets a message
 saying what to write — Nix's own "called without required argument" says
 neither.
 
-Two arities, and `collects` is the fan-in one. An earlier fan-in was removed
-for two reasons: it carried no ordering, and it implied only the floe
-installing a capability could render resources using it — which is not how
-Kubernetes works, since a registered CRD is a primitive anyone may use. A
-collection carries one eval edge per contributor, which answers the first.
-The second still holds, so where a runtime aggregator exists a floe ships a
-constructor and the consumer emits the resource into its own bundle. No floe
-in this distribution collects.
+Three arities. The arity is a property of the hole rather than of the
+signature, so the same signature can be exactly-one for one floe and
+collected by another.
+
+`collects` is the fan-in one. An earlier fan-in was removed for two reasons:
+it carried no ordering, and it implied only the floe installing a capability
+could render resources using it — which is not how Kubernetes works, since a
+registered CRD is a primitive anyone may use. A collection carries one eval
+edge per contributor, which answers the first. The second still holds, so
+where a runtime aggregator exists a floe ships a constructor and the
+consumer emits the resource into its own bundle.
+
+A binding on a collected hole is an error rather than a no-op. A
+collection's arity is every provider in the link, so there is nothing for a
+binding to choose — and one written there used to be silently ignored.
+
+### `optional`
+
+Zero or one: the hole a floe can do without. Grafana's OIDC, a collector's
+trace backend, and what NixOS spells as `mkIf config.services.foo.enable`.
+
+```nix
+optional.oidc = sigs.OIDC_PROVIDER;
+```
+
+Resolved values land in `requires` beside the exactly-one holes, as the
+value or as `null`, because a body wanting "the thing if it is there" should
+read one place:
+
+```nix
+body = { requires, ... }: {
+  out.k8s = lib.optionalAttrs (requires.oidc != null) { … };
+};
+```
+
+**It resolves only when a deployer names the provider**, by `.bind` or by
+the link's `defaults`. A provider merely being present wires nothing, and a
+link holding an unnamed provider for an optional hole is an error naming the
+candidate. That is deliberate and it is the whole difference from an
+`enable` flag: adding a floe to a link can never silently change another
+floe's output. `requires` gets the same property for free by erroring on a
+second provider; this is the version of it for a hole that may be absent.
+
+The cost is a line per optional hole a deployer actually wants wired, which
+`defaults` pays once for a whole link rather than once per consumer.
 
 ### `singleton`
 
@@ -126,14 +164,14 @@ by `floe.name`; see `singleton` above.
 **`modules`**, ordinary NixOS modules in the floe's own `evalModules`, for a
 floe that wants merge inside itself:
 
-| Path                          | Is                                    |
-| ----------------------------- | ------------------------------------- |
-| `config.floe.name`            | the link's name for this instance     |
-| `config.floe.inputs.<n>`      | what the deployer passed              |
-| `config.floe.requires.<hole>` | the resolved, **sealed** value        |
-| `config.floe.collects.<hole>` | every provider's, keyed by unit       |
-| `config.floe.out.<sig>`       | what you write                        |
-| `config.floe.provides.<hole>` | what you write, sealed on the way out |
+| Path                          | Is                                                                  |
+| ----------------------------- | ------------------------------------------------------------------- |
+| `config.floe.name`            | the link's name for this instance                                   |
+| `config.floe.inputs.<n>`      | what the deployer passed                                            |
+| `config.floe.requires.<hole>` | the resolved, **sealed** value, or `null` for an unwired `optional` |
+| `config.floe.collects.<hole>` | every provider's, keyed by unit                                     |
+| `config.floe.out.<sig>`       | what you write                                                      |
+| `config.floe.provides.<hole>` | what you write, sealed on the way out                               |
 
 Either way there is no ambient option tree. A fact from outside the floe
 arrives through a signature or it does not arrive.
@@ -155,6 +193,33 @@ mkSig { name, canonicalName, description, shape }
 | `canonicalName` | the name a hole or provide of it should be called by             |
 | `description`   | one line                                                         |
 | `shape`         | a `T.*` schema — `T.record { … }` for an interface               |
+
+### Compatibility
+
+Resolution keys on `name`, a bare string, so two definitions of one name — a
+third-party floe pinning an older copy, two distributions shipping the same
+concept — both answer the same holes. `link` checks that the provider's
+shape **answers** the requirer's before anything evaluates: the provider
+must be a width-supertype, every field the requirer declared present and
+compatible, extras being what sealing drops.
+
+Without it the link succeeded and the consumer died on Nix's
+`attribute 'port' missing`, several frames away, naming no floe, no field
+and no provider — and not catchable by `tryEval`.
+
+Variance is ordinary covariance, with one asymmetry: a concrete provider
+answers a requirer that declared the field `T.deferred`, because such a
+requirer handles both, and the reverse is refused. Closed sets run the other
+way — a provider's `T.enum` values and `T.taggedUnion` variants must be a
+_subset_ of the requirer's. A refinement answers what it refines, so a
+`T.dnsName` satisfies a `T.str`.
+
+This is also the signature-evolution rule, which is why there is no version
+field: **adding** a field to a signature is compatible with every existing
+requirer, removing or retyping one is not, and the error names the field. An
+emitted signature has no requirer, so co-emitters of one `out` name are
+never compared — they must be free to differ.
+[ADR 0007](adr/0007-a-provider-must-answer-the-requirers-signature.md).
 
 One constructor for everything a floe commits to: a value it exchanges with
 a peer (`requires`, `collects`, `provides`) and a product it emits (`out`).
@@ -221,6 +286,7 @@ can express, not for speed. `docs/adr/0004` has the measurements.
 | --------------------------------------------- | ----------------------------------------------------------------------- |
 | `T.str`, `T.int`, `T.bool`, `T.port`          | scalars                                                                 |
 | `T.url`, `T.dnsName`                          | scalars with a shape                                                    |
+| `T.package`                                   | a derivation or the store path it coerces to                            |
 | `T.enum`, `T.nullOr`, `T.listOf`, `T.attrsOf` | the usual combinators                                                   |
 | `T.record`                                    | a fixed set of named fields                                             |
 | `T.taggedUnion`                               | externally tagged; matches serde's default                              |
@@ -232,6 +298,30 @@ A distribution may add its own. Catallaxy's `k8sName` lives in its prelude
 rather than here, because it was the one thing making the claim that this
 library knows nothing about Kubernetes false. What a floe actually gets is
 the prelude: this plus the distribution's own.
+
+### `T.package`, and where a package set does not go
+
+`T.package` is how something built crosses a floe boundary, and it exists
+because the two alternatives both fail: `T.str` refuses a derivation, and
+`T.any` admits one and then meets the token scan — which used to walk a
+derivation's self-referential `out` until the stack ran out, a crash
+`tryEval` cannot even catch. Every NixOS module that writes
+`environment.systemPackages` puts one in `out`.
+
+The package **set** is a different thing and is not a signature. Which
+nixpkgs, which overlays and which system are the deployer's choice, so a
+floe takes the packages it needs as ordinary inputs, one at a time:
+
+```nix
+inputs.postgresql = lib.mkOption { type = lib.types.package; };
+```
+
+Not `inputs.pkgs`. A package set can be neither hashed for a cache key nor
+serialised into the IR, and one package is both — a derivation hashes as its
+`drvPath` and `toJSON`s as its `outPath`. The cost is that a deployer writes
+`pkgs.postgresql` per floe that needs it, and `defaults` cannot help because
+packages are inputs rather than signatures.
+[ADR 0008](adr/0008-per-floe-eval-stays-cacheable.md).
 
 ### `T.deferred`, and retrieval signatures
 

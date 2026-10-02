@@ -1,11 +1,36 @@
-# Review
+# Review — closed
 
-Runtime still doesn't make sense to me. I get why, I don't understand how.
-How is something reading the runtime value. For example I know at least in
-the kubernetes example there isn't anything concrete for it to read the
-generated fingerprint and put it in the annotation
+Both items are answered. Kept rather than deleted because the second one has
+a mechanical change still outstanding.
 
-Shape is still the wrong word. We can borrow fields from the ML module mixin
-vocab. Fields are on signatures. That is why I was confused before the
-terminology on the rest of the floe was confusing as to which was input and
-which was output. Now that is cleaned up the fields won't be confusing
+**"Runtime still doesn't make sense to me. I get why, I don't understand
+how. How is something reading the runtime value."** The word was wrong and
+so was the design: `T.runtime`'s token carried a label and a constant, and
+nothing could have filled the value in. A provider now declares a
+**retrieval** — an ordinary signature saying where the value will be
+readable — and `link.deferredSites` is the list a backend reads to find the
+work. `tests/examples.nix` performs the substitution, which is the proof the
+site list is enough. The word is now `deferred`, the programming-language
+one. See [ADR 0005](docs/adr/0005-the-provider-declares-the-retrieval.md).
+
+**"Shape is still the wrong word. We can borrow fields from the ML module
+mixin vocab. Fields are on signatures."** Agreed, and `mkSig` takes
+`fields`. It accepts either an attrset of `T`s or a bare `T`, dispatching on
+whether the argument has a `tag`, and normalises an attrset to `T.record` —
+so one word covers both a narrow interface and an opaque `T.attrsOf T.any`
+output, which is what the `shape` rename was reaching for.
+
+The residue is honest: `shape` survives as the internal attribute name in
+`lib/`, because `T.record` stores its own `fields` and a signature storing
+the author's argument under the same name makes `lib/link.nix` read
+`sig.fields.fields`. It appears in no document and in nothing an author
+writes. The two rejected alternatives were both names as mutually exclusive
+arguments — two spellings for one thing, which
+[ADR 0003](docs/adr/0003-trim-unexercised-surface.md) deleted elsewhere —
+and renaming `T.record`'s own field, which churns the type layer to fix a
+word nobody reads.
+
+The rename touches 55 sites and lands after the core work in
+[ADR 0007](docs/adr/0007-a-provider-must-answer-the-requirers-signature.md)
+and [ADR 0008](docs/adr/0008-per-floe-eval-stays-cacheable.md), so that it
+moves settled code.
