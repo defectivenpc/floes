@@ -6,8 +6,14 @@ let
   types = import ./types.nix { inherit lib; };
   interfaces = import ./interfaces.nix { inherit lib types; };
   floe = import ./floe.nix { inherit lib types; };
+  refusals = import ./refusals.nix { inherit lib types; };
   link = import ./link.nix {
-    inherit lib types interfaces;
+    inherit
+      lib
+      types
+      interfaces
+      refusals
+      ;
     floeLib = floe;
   };
 in

@@ -6,6 +6,7 @@
   types,
   interfaces,
   floeLib,
+  refusals,
 }:
 
 let
@@ -106,7 +107,7 @@ rec {
       # Built once, because the arity rules ask "who provides this?" once per
       # hole and the obvious implementation — scan every unit's provides, per
       # hole — is O(units x holes). Two of them, in fact: `wiringOne` and
-      # `selfResolutions` each did their own pass. At a thousand of each that
+      # the self-resolution check each did their own pass. At a thousand of each that
       # was 1.1s and 586MB of the 1.3s a link took, against 0.17s and 129MB
       # for this. `bench/run.sh` is the measurement.
       providerIndex = lib.groupBy (p: p.sigName) (
@@ -159,116 +160,6 @@ rec {
           ]
       ) instNames;
 
-      # A name may not mean two different signatures.
-      #
-      # Not the other direction: a floe may legitimately hold two holes on one
-      # signature — a primary and a replica database — so a signature cannot be
-      # pinned to a single name. What goes wrong in practice is the reverse, and
-      # it is what `canonicalName` exists to prevent: `provides.operator` meaning
-      # four different things across a catalogue, so a reader cannot tell which.
-      nameCollisions =
-        let
-          byName = lib.groupBy (e: e.holeName) allSurfaces;
-          ambiguous = lib.filterAttrs (_: es: lib.length (lib.unique (map (e: e.sig.name) es)) > 1) byName;
-        in
-        lib.mapAttrsToList (
-          holeName: es:
-          "'${holeName}' names ${toString (lib.length (lib.unique (map (e: e.sig.name) es)))} signatures: "
-          + lib.concatMapStringsSep ", " (
-            e: "'${e.sig.name}' (${e.u}'s ${e.surface}, canonically '${e.sig.canonicalName}')"
-          ) es
-        ) ambiguous;
-
-      # A unit answering its own hole. Both singular arities, because the
-      # argument is the same for each: an otel-collector that provided
-      # TRACE_INGEST would resolve its own trace backend to itself and export
-      # into its own receiver.
-      selfResolutions = lib.concatMap (
-        u:
-        let
-          inst = getInstance u;
-          onSurface =
-            surface: verb:
-            lib.concatLists (
-              lib.mapAttrsToList (
-                hole: sig:
-                map (
-                  p: "floe '${u}' ${verb} '${sig.name}' as hole '${hole}' and also provides it (as ${p.provideName})"
-                ) (lib.filter (p: p.instName == u) (providersOf sig.name))
-              ) inst.def.${surface}
-            );
-        in
-        onSurface "requires" "requires" ++ onSurface "optional" "optionally requires"
-      ) instNames;
-
-      # One name on two singular surfaces of one floe. They resolve into one
-      # `requires` attrset, so without this one of them is silently dropped.
-      surfaceCollisions = lib.concatMap (
-        u:
-        let
-          def = (getInstance u).def;
-        in
-        map (h: "floe '${u}' declares hole '${h}' in both `requires` and `optional`") (
-          lib.intersectLists (lib.attrNames def.requires) (lib.attrNames def.optional)
-        )
-      ) instNames;
-
-      # An optional hole nobody named, in a link that has a provider for it. The
-      # no-op would be defensible and is not what a deployer who added the
-      # provider expects, so it is an error that names the candidate.
-      unnamedOptionals = lib.concatMap (
-        u:
-        let
-          inst = getInstance u;
-        in
-        lib.concatLists (
-          lib.mapAttrsToList (
-            hole: sig:
-            let
-              s = selectionFor u hole sig;
-            in
-            lib.optional (s.want == null && s.ps != [ ]) {
-              inherit u hole sig;
-              candidate = (lib.head s.ps).instName;
-              describe = describeProviders s.ps;
-            }
-          ) inst.def.optional
-        )
-      ) instNames;
-
-      # A `.bind` naming a collected hole. Silently ignored until now, because
-      # `wiringAll` takes every provider and never consulted a binding — so a
-      # deployer who wrote one believed it did something. A collection's arity is
-      # every provider; there is nothing there to choose.
-      collectBindings = lib.concatMap (
-        u:
-        let
-          inst = getInstance u;
-        in
-        map (hole: "unit '${u}' binds hole '${hole}', which collects '${inst.def.collects.${hole}.name}'") (
-          lib.filter (h: inst.def.collects ? ${h}) (lib.attrNames inst.bindings)
-        )
-      ) instNames;
-
-      # Two instances of a floe that declared itself a singleton. Its body writes
-      # fixed paths rather than keying them by `config.floe.name`, so both
-      # instances emit the same output — and identical values merge without
-      # complaint wherever that output lands. The deployer gets one of the thing
-      # and believes they have two, with no error anywhere downstream, which is
-      # why this one has to be caught here.
-      singletonBreaches =
-        let
-          declared = lib.filter (u: (getInstance u).def.singleton) instNames;
-          byFloe = lib.groupBy (u: (getInstance u).def.name) declared;
-        in
-        lib.mapAttrsToList (
-          floeName: us:
-          "floe '${floeName}' is a singleton, instantiated ${toString (lib.length us)} times: "
-          + lib.concatMapStringsSep ", " (u: "'${u}'") us
-        ) (lib.filterAttrs (_: us: lib.length us > 1) byFloe);
-
-      # Which provider a hole means: the unit's own `.bind` first, then the
-      # link's `defaults` for that signature, then nothing.
       wantedBy =
         u: hole: sig:
         (getInstance u).bindings.${hole} or (defaults.${sig.name} or null);
@@ -377,7 +268,7 @@ rec {
             s = selectionFor u hole sig;
           in
           # Unnamed is unwired. That a provider is nonetheless present is
-          # refused, as `unnamedOptionals` below, rather than thrown from here:
+          # refused by `lib/refusals.nix` rather than thrown from here:
           # a refusal belongs in the preflight with the others, where it is
           # reported rather than escaping from whatever forced it first.
           if s.want == null then
@@ -401,78 +292,6 @@ rec {
         u: inst:
         lib.mapAttrs (_hole: sig: lib.filter (p: p.instName != u) (providersOf sig.name)) inst.def.collects
       ) (lib.genAttrs instNames getInstance);
-
-      # ---- Compatibility ----------------------------------------------------
-      #
-      # Resolution matches a signature by `name`, a bare string. Nothing used to
-      # compare the shapes behind it, so two definitions of one name linked
-      # cleanly and then failed where the value was read —
-      # `attribute 'port' missing`, naming no floe and catchable by nothing.
-      # That is the error a third-party floe pinning an older copy of a
-      # signature gets, and it is why this check exists. ADR 0007.
-      #
-      # Header-only, so it costs nothing per value and reports before any body
-      # evaluates. Both facts it needs are in the declarations: which provide
-      # answered, and what each side declared.
-      incompatible =
-        u: hole: verb: sig: p:
-        let
-          provided = (getInstance p.instName).def.provides.${p.provideName};
-          ms = types.mismatches [ ] provided.shape sig.shape;
-        in
-        lib.optional (ms != [ ]) (
-          "'${p.instName}' provides '${provided.name}' (as ${p.provideName}) but cannot answer "
-          + "what '${u}' ${verb} as hole '${hole}':\n      - "
-          + lib.concatStringsSep "\n      - " ms
-        );
-
-      # A hole an inclusion declared that nothing inside it reads.
-      #
-      # This is the cost of declaring an inclusion's holes rather than inferring
-      # them from its units, which Backpack can do and this cannot: `units` is a
-      # function of `inputs`, so the set of units inside is not known until
-      # something evaluates, and a floe's interface has to be readable from its
-      # header before anything does. The under-declared direction is caught by
-      # the unfilled-hole error; this is the other one.
-      #
-      # An unused declaration asks a deployer to wire something that changes
-      # nothing, and `.bind` is the ceremony the whole arity story is measured
-      # in, so a hole that buys nothing is worth refusing.
-      unreadInjections =
-        let
-          targets = lib.unique (
-            lib.concatMap (
-              u:
-              map (p: p.instName) (lib.attrValues wiringOne.${u})
-              ++ map (p: p.instName) (lib.filter (p: p != null) (lib.attrValues wiringOptional.${u}))
-              ++ map (p: p.instName) (lib.concatLists (lib.attrValues wiringAll.${u}))
-            ) instNames
-          );
-          unread = lib.filter (s: !(lib.elem s targets)) (lib.attrNames synthetic);
-        in
-        # Per hole rather than per injected unit: a collected hole injects one
-        # unit per contributor, and they are all the same mistake.
-        lib.unique (map (s: synthetic.${s}) unread);
-
-      incompatibilities = lib.concatMap (
-        u:
-        let
-          def = (getInstance u).def;
-        in
-        lib.concatLists (
-          lib.mapAttrsToList (hole: p: incompatible u hole "requires" def.requires.${hole} p) wiringOne.${u}
-        )
-        ++ lib.concatLists (
-          lib.mapAttrsToList (
-            hole: p: if p == null then [ ] else incompatible u hole "optionally requires" def.optional.${hole} p
-          ) wiringOptional.${u}
-        )
-        ++ lib.concatLists (
-          lib.mapAttrsToList (
-            hole: ps: lib.concatMap (incompatible u hole "collects" def.collects.${hole}) ps
-          ) wiringAll.${u}
-        )
-      ) instNames;
 
       # ---- Withholding a field derived from a collection --------------------
       #
@@ -1062,84 +881,30 @@ rec {
         };
       };
 
+      # Every way this link is refused, in the order they are reported.
+      # `lib/refusals.nix` holds them; what stays here is resolution, the
+      # fixpoint and the views derived from it.
+      refusal = refusals.firstRefusal {
+        inherit
+          instNames
+          getInstance
+          providersOf
+          describeProviders
+          allSurfaces
+          selectionFor
+          wiringOne
+          wiringOptional
+          wiringAll
+          synthetic
+          isSynthetic
+          withinInclusion
+          ;
+      };
+
       violations = lib.concatMap (p: p result) policies;
     in
-    if nameCollisions != [ ] then
-      throw (
-        "floe link error: a hole or provide name means more than one signature.\n  - "
-        + lib.concatStringsSep "\n  - " nameCollisions
-        + "\n\nA reader seeing `requires.<name>` should be able to tell what it is "
-        + "without looking it up. Rename one to its signature's `canonicalName`."
-      )
-    else if singletonBreaches != [ ] then
-      throw (
-        "floe link error: a singleton floe is instantiated more than once.\n  - "
-        + lib.concatStringsSep "\n  - " singletonBreaches
-        + "\n\nIts body writes fixed paths instead of keying them by "
-        + "`config.floe.name`, so every instance emits the same output. Identical "
-        + "values merge without complaint, which would leave you with one of it "
-        + "and no error saying so.\n\nEither instantiate it once, or make the "
-        + "floe key its output by `config.floe.name` and drop `singleton`."
-      )
-    else if surfaceCollisions != [ ] then
-      throw (
-        "floe link error: a hole name is declared on two singular surfaces.\n  - "
-        + lib.concatStringsSep "\n  - " surfaceCollisions
-        + "\n\nBoth resolve into `requires`, so one of them would be dropped with "
-        + "nothing saying which. Pick the arity the floe means: `requires` if it "
-        + "cannot work without the thing, `optional` if it can."
-      )
-    else if collectBindings != [ ] then
-      throw (
-        "floe link error: a binding names a collected hole.\n  - "
-        + lib.concatStringsSep "\n  - " collectBindings
-        + "\n\nA collection's arity is every provider in the link, so there is "
-        + "nothing for a binding to choose, and this one was being ignored. Remove "
-        + "it, or declare the hole `requires` or `optional` if exactly one provider "
-        + "is what the floe meant."
-      )
-    else if selfResolutions != [ ] then
-      throw (
-        "floe link error: a unit does not satisfy its own hole.\n  - "
-        + lib.concatStringsSep "\n  - " selfResolutions
-        + "\n\nRead the provide directly; it is in scope and needs no link."
-      )
-    else if unnamedOptionals != [ ] then
-      throw (
-        "floe link error: an optional hole has a provider that nobody named.\n  - "
-        + lib.concatMapStringsSep "\n  - " (
-          o:
-          "unit '${o.u}' optionally requires '${o.sig.name}' as hole '${o.hole}', provided "
-          + "here by ${o.describe}"
-        ) unnamedOptionals
-        + "\n\nAn optional hole is never wired by a provider merely being present, so "
-        + "nothing is connected and the unit would quietly run without it. That is what "
-        + "keeps adding a floe from silently changing another floe's output.\n\n"
-        + "Wire it for one unit with `.bind { "
-        + "${(lib.head unnamedOptionals).hole} = \"${(lib.head unnamedOptionals).candidate}\"; }`, "
-        + "or for every unit with `link { defaults.${(lib.head unnamedOptionals).sig.name} = "
-        + "\"${(lib.head unnamedOptionals).candidate}\"; }`."
-      )
-    else if unreadInjections != [ ] then
-      throw (
-        "floe link error: inclusion '${toString withinInclusion}' declares a hole that "
-        + "nothing inside it reads.\n  - "
-        + lib.concatMapStringsSep "\n  - " (
-          i: "hole '${i.hole}' (signature '${i.signature}')"
-        ) unreadInjections
-        + "\n\n  Its units: ${lib.concatStringsSep ", " (lib.filter (n: !(isSynthetic n)) instNames)}"
-        + "\n\nA declared hole is something the parent has to supply, so one nothing "
-        + "reads asks a deployer to wire a value that changes nothing. Remove it, or "
-        + "give the unit inside that was meant to read it the hole."
-      )
-    else if incompatibilities != [ ] then
-      throw (
-        "floe link error: a provider cannot answer the signature a unit asked for.\n  - "
-        + lib.concatStringsSep "\n  - " incompatibilities
-        + "\n\nResolution matches a signature by name, so two definitions of one name "
-        + "link and then fail wherever the value is read, naming no floe. Widen the "
-        + "provider's signature, or narrow the requirer's to the fields it uses."
-      )
+    if refusal != null then
+      throw refusal
     else if violations != [ ] then
       throw ("floe policy violation(s):\n  - " + lib.concatStringsSep "\n  - " violations)
     else
