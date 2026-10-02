@@ -75,7 +75,9 @@ let
       name = "CHAIN_${toString i}";
       canonicalName = "chain${toString i}";
       description = "Benchmark signature for chain position ${toString i}.";
-      shape = T.record { v = T.str; };
+      fields = {
+        v = T.str;
+      };
     };
 
   # A narrow, nested output schema rather than `attrsOf any`: checking a real
@@ -87,7 +89,7 @@ let
     name = "bench.out";
     canonicalName = "bench";
     description = "Benchmark output signature.";
-    shape = T.record (
+    fields = (
       lib.genAttrs fieldNames (
         _:
         T.record {

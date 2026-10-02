@@ -9,6 +9,27 @@ The format is based on
 
 ### Added
 
+- **`mkInclusion`, a floe whose body is a link**, so a lab holding clusters
+  is the same mechanism as a cluster holding floes rather than a second one
+  beside it. It has everything an ordinary floe has — `inputs`,
+  `.instantiate`, `.bind`, the three arities, `provides` — and no `out`,
+  because its units' output propagates with their names qualified
+  (`app/podinfo`). `deferredSites` and `phases` follow, and `phases` is
+  keyed by what emits, so an inclusion has none.
+
+  It declares the holes its units leave open and the parent fills them,
+  which is what makes one cluster definition reusable across labs. A filled
+  hole becomes a **unit inside** providing the parent's value — a provider
+  like any other with a real eval edge, not a second resolution path
+  consulted when the first fails, which is what `scope` was.
+
+  `exports` says which inner provide each `provides` re-exports, and because
+  the export is a sealing step, a narrower export signature is what replaces
+  `T.local`: the boundary declares what crosses rather than every field
+  carrying a locality marking. `examples/k8s` is the worked multi-link case
+  [ADR 0003](docs/adr/0003-trim-unexercised-surface.md) set as the condition
+  for `scope` returning. [ADR 0006](docs/adr/0006-a-link-can-be-a-unit.md)
+
 - **`mkFloe { optional = { … }; }`**, the third arity: zero or one. The hole
   a floe can do without — grafana's OIDC, a collector's trace backend, and
   what NixOS spells as `mkIf config.services.foo.enable`. Resolved values

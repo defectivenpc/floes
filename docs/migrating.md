@@ -58,18 +58,39 @@ painful one, and it is catallaxy's lab→cluster nesting. Nothing in
 fields meaning nothing in another link — which made `T` carry a concept the
 NixOS examples never needed.
 
-The requirement was real even so, and
-[ADR 0006](adr/0006-a-link-can-be-a-unit.md) settles what replaces it: an
-**inclusion**, a floe whose body is a link, which may leave an inner hole
-unfilled for the parent to fill and re-exports a provide under a narrower
-**export signature**. That last part is what makes `T.local` unnecessary
-rather than merely absent — the boundary declares what crosses and sealing
-drops the rest, instead of every field carrying a locality marking for a
-boundary most of them never meet.
+The requirement was real even so, and what replaces it is `mkInclusion`: a
+floe whose body is a link, which leaves holes open for the parent to fill
+and re-exports a provide under a narrower **export signature**. See
+[ADR 0006](adr/0006-a-link-can-be-a-unit.md) and the `mkInclusion` section
+of [the API](floe-api.md); `examples/k8s` is the worked case, a lab holding
+two clusters.
 
-**It is not built.** Until it is, a nested link's parent facts are passed as
-`inputs`: the deployer threads them by hand and nothing checks locality.
-That is the honest state of things rather than a recommendation.
+Porting a `scope` call site means turning the nesting inside out. Before,
+the inner link received an attrset of outer values and resolved against it
+as a fallback:
+
+```nix
+link { units = config.floes; inherit scope catalogue; }
+```
+
+Now the nesting is declared, and the inner link is a unit of the outer one:
+
+```nix
+mkInclusion {
+  requires.secretStore = sigs.SECRET_STORE;   # what `scope` used to carry in
+  units = { requires, ... }: config.floes;
+  …
+}
+```
+
+The win beyond tidiness is that the wiring is checked: `scope` could carry a
+value nothing inside asked for, and a hole could go unfilled with the
+diagnosis depending on which path ran. An open hole is resolved by the same
+rule as every other, and an unfilled one is the same error.
+
+`T.local` has no replacement and needs none. Drop it from every signature,
+and where a field genuinely must not cross a link boundary, give that
+boundary a narrower export signature instead.
 
 ## Added
 

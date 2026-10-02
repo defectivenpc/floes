@@ -269,6 +269,112 @@ let
       defaults = lib.optionalAttrs (default != null) { SELF = default; };
     };
 
+  # ---- Inclusion fixtures (ADR 0006) ---------------------------------------
+
+  OPAQUE = floe.mkSig {
+    name = "OPAQUE";
+    canonicalName = "opaque";
+    description = "Fixture: an output signature holding anything.";
+    fields = T.attrsOf T.any;
+  };
+
+  # Two fields, one of which an export will drop — which is what replaces
+  # `T.local`: the boundary declares what crosses.
+  WIDE = floe.mkSig {
+    name = "WIDE";
+    canonicalName = "wide";
+    description = "Fixture: a signature with an inside-only field.";
+    fields = {
+      v = T.str;
+      insideOnly = T.str;
+    };
+  };
+
+  NARROW = floe.mkSig {
+    name = "NARROW";
+    canonicalName = "narrow";
+    description = "Fixture: the same thing, as a peer outside may read it.";
+    fields = {
+      v = T.str;
+    };
+  };
+
+  # Provides WIDE, and mints a deferred value so a consumer *inside* the same
+  # inclusion produces a token whose source is an inner unit.
+  insider = floe.mkFloe {
+    name = "insider";
+    summary = "Fixture floe for a test suite.";
+    provides.wide = WIDE;
+    body =
+      { floe, ... }:
+      {
+        provides.wide = {
+          v = "inner";
+          insideOnly = "means nothing out there";
+        };
+      };
+  };
+
+  # Reads the inclusion's open hole and writes a token into output, so both
+  # halves of site qualification are exercised: a token minted inside and one
+  # that arrived from the parent.
+  emitter = floe.mkFloe {
+    name = "emitter";
+    summary = "Fixture floe for a test suite.";
+    requires.wide = WIDE;
+    requires.deferredThing = DEFERRED_THING;
+    out.opaque = OPAQUE;
+    body =
+      { requires, floe, ... }:
+      {
+        out.opaque = {
+          fromOutside = requires.deferredThing.token;
+          fromInside = floe.mkDeferred REF { path = "/run/inner"; };
+        };
+      };
+  };
+
+  DEFERRED_THING = floe.mkSig {
+    name = "DEFERRED_THING";
+    canonicalName = "deferredThing";
+    description = "Fixture: carries a value that does not exist yet.";
+    fields = {
+      token = T.deferred T.str;
+    };
+  };
+
+  minter = floe.mkFloe {
+    name = "minter";
+    summary = "Fixture floe for a test suite.";
+    provides.deferredThing = DEFERRED_THING;
+    body =
+      { floe, ... }:
+      {
+        provides.deferredThing.token = floe.mkDeferred REF { path = "/run/outer"; };
+      };
+  };
+
+  # The inclusion: one open hole the parent fills, one export narrowed on the
+  # way out, and two units inside.
+  enclosure = floe.mkInclusion {
+    name = "enclosure";
+    summary = "Fixture inclusion for a test suite.";
+    requires.deferredThing = DEFERRED_THING;
+    provides.narrow = NARROW;
+    exports.narrow = "insider";
+    units = _: {
+      insider = insider.instantiate { };
+      emitter = emitter.instantiate { };
+    };
+  };
+
+  nestedLink = floe.link {
+    units = {
+      minter = minter.instantiate { };
+      env = enclosure.instantiate { };
+    };
+  };
+
   # A derivation, as far as any Nix consumer is concerned. `out` is itself,
   # which is what made walking one a stack overflow.
   fakeDrv = rec {
@@ -1017,6 +1123,137 @@ in
               { }
           ).bind
             { mine = "whoever"; };
+      }
+    );
+    expected = true;
+  };
+
+  # ---- Inclusion (ADR 0006) ------------------------------------------------
+
+  # The half that makes inclusion worth having rather than a convenience:
+  # nothing inside answers `deferredThing`, and the parent does. A cluster with
+  # an open hole is reusable across labs.
+  testAnOpenHoleIsFilledByTheParent = {
+    expr = lib.attrNames nestedLink.out.OPAQUE;
+    expected = [ "env/emitter" ];
+  };
+
+  # The export is a sealing step, which is the whole of what replaces `T.local`:
+  # `insideOnly` is in the signature the units share and not in the one the
+  # boundary declares, so a peer outside cannot read it.
+  testAnExportIsSealedToItsOwnSignature = {
+    expr = nestedLink.provides.env.narrow;
+    expected = {
+      v = "inner";
+    };
+  };
+
+  # Output propagates with inner names qualified, because a backend wants one
+  # bucket rather than a tree to walk.
+  testInnerOutputIsQualifiedByTheInclusion = {
+    expr = lib.attrNames (lib.groupBy (s: s.unit) nestedLink.deferredSites);
+    expected = [ "env/emitter" ];
+  };
+
+  # Both halves of source qualification. `mkDeferred` binds `source` at
+  # body-eval time, when the inner link cannot know it will be included — so a
+  # token minted inside needs qualifying on the way out, and one that arrived
+  # from the parent already names a unit the parent knows. Qualifying that
+  # second one would invent a node that does not exist.
+  testATokenMintedInsideIsQualifiedAndOneFromOutsideIsNot = {
+    expr =
+      let
+        site = lib.head nestedLink.deferredSites;
+        at = k: (lib.head (lib.filter (s: s.at == [ k ]) nestedLink.deferredSites)).token.source;
+      in
+      {
+        inside = at "fromInside";
+        outside = at "fromOutside";
+      };
+    expected = {
+      inside = "env/emitter";
+      outside = "minter";
+    };
+  };
+
+  # Phases are keyed by what emits, which after an inclusion is its units
+  # rather than it: an inclusion is not a thing that applies.
+  testPhasesAreKeyedByTheUnitsInsideNotTheInclusion = {
+    expr = nestedLink.phases;
+    expected = {
+      minter = 0;
+      "env/emitter" = 1;
+      "env/insider" = 0;
+    };
+  };
+
+  # An inclusion resolves as a floe, so its own hole is an ordinary edge and
+  # its units' edges are ordinary edges one level down.
+  testAnInclusionIsANodeAndSoAreItsUnits = {
+    expr = lib.sort (a: b: a < b) nestedLink.graph.nodes;
+    expected = [
+      "env"
+      "env/emitter"
+      "env/insider"
+      "minter"
+    ];
+  };
+
+  testExportingFromAUnitThatIsNotThereIsRefused = {
+    expr = fails (
+      floe.link {
+        units.env =
+          (floe.mkInclusion {
+            name = "typo";
+            summary = "Fixture: exports from a unit it does not hold.";
+            provides.narrow = NARROW;
+            exports.narrow = "insidr";
+            units = _: { insider = insider.instantiate { }; };
+          }).instantiate
+            { };
+      }
+    );
+    expected = true;
+  };
+
+  # An inclusion re-exports a provide; it does not compute one. So the two
+  # declarations have to agree, and saying only one of them is the mistake.
+  testAProvideWithNoExportIsRefused = {
+    expr = fails (
+      floe.mkInclusion {
+        name = "half";
+        summary = "Fixture: provides without saying where from.";
+        provides.narrow = NARROW;
+        units = _: { };
+      }
+    );
+    expected = true;
+  };
+
+  testAnExportWithNoProvideIsRefused = {
+    expr = fails (
+      floe.mkInclusion {
+        name = "half";
+        summary = "Fixture: exports without declaring the signature.";
+        exports.narrow = "insider";
+        units = _: { };
+      }
+    );
+    expected = true;
+  };
+
+  testAnInclusionWithABodyIsRefused = {
+    expr = fails (
+      floe.mkFloe {
+        name = "confused";
+        summary = "Fixture: an inclusion with a second body.";
+        inclusion = {
+          units = _: { };
+          exports = { };
+          defaults = { };
+          policies = [ ];
+        };
+        body = _: { };
       }
     );
     expected = true;

@@ -130,18 +130,22 @@ interface — if a consumer could read past it, the signature would not be
 one. And a floe is the unit, which is why `lab.clusters.<c>.floes.<name>` is
 an instantiation and not a definition.
 
-One piece of Backpack that had no counterpart here until recently is
-**inclusion**: a unit that includes other units and re-exports what they
-provide. Every lab had grown a private stand-in for it — a closure returning
-an attrset of floes — which is what
+The last piece of Backpack to arrive is **inclusion**: a unit that includes
+other units and re-exports what they provide. `floe.mkInclusion` is a floe
+whose body is a link, which makes a lab holding clusters the same mechanism
+as a cluster holding floes. Every lab had grown a private stand-in for it —
+a closure returning an attrset of floes — which is what
 [presets](https://github.com/defectivenpc/catallaxy/blob/main/docs/book/src/using/presets.md)
-now are, with the declaration checked rather than assumed.
+are, with the declaration now checked rather than assumed.
 
-One place the analogy stops. Backpack links a whole program at once; a floe
-link is one fixpoint over one set of units, and there is no longer a wider
-scope a link falls back to — `scope` and the `T.local` locality marking that
-served it were removed as unexercised. `docs/adr/0003` says why, and
-`docs/migrating.md` says what to do instead.
+That is also where the earlier `scope` went. Backpack links a whole program
+at once, and a floe link is one fixpoint over one set of units; rather than
+a wider scope a link falls back to, nesting is declared and an inner link is
+a unit of the outer one. `scope` and the `T.local` locality marking that
+served it are gone — a value meaningful only in one link stays there because
+the boundary re-exports a narrower signature, and sealing does the rest.
+`docs/adr/0003` says why they went, `docs/adr/0006` says what replaced them,
+and `docs/migrating.md` says how to move a call site.
 
 Two things Backpack has no counterpart for, and floe now does. `T.deferred`
 marks a value that does not exist until after apply, from which the linker

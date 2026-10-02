@@ -18,6 +18,11 @@ in
     mkSig
     renderInputs
     ;
-  inherit (floe) mkFloe isInstance instanceType;
+  inherit (floe)
+    mkFloe
+    mkInclusion
+    isInstance
+    instanceType
+    ;
   inherit (link) link candidatesFor;
 }

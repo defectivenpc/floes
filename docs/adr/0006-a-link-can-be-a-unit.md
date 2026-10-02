@@ -49,8 +49,8 @@ boundary which did not exist.
 
 ## Inner holes stay open
 
-An inclusion may re-export a hole its own units left unfilled, and `link`
-errors on an unfilled hole only when it was not re-exported. This is the
+An inclusion declares the holes its units leave unfilled, on the ordinary
+surfaces with the ordinary arities, and the parent fills them. This is the
 half that makes inclusion worth building rather than a convenience: a
 cluster with an open `SECRET_STORE` is reusable across labs, and a lab can
 _supply_ its clusters instead of only reading from them. A closed-link
@@ -59,25 +59,50 @@ is now — hand-written in the module layer, checked by hand-written
 `assertions` that both sides derived the same address, which is the error
 class floe exists to move to link time.
 
-Collect-arity holes export too, with their arity carried in the inclusion's
-header, because the fan-in case is the one that needed it. `withheld` then
-keeps working across the boundary by walking the inclusion's declared
-surfaces rather than assuming one flat link — without that, a parent
-contributing to an inner collection and reading the fold is back to
-`infinite recursion encountered`, naming nothing.
+**How a parent's value reaches the units inside is the part worth
+recording.** Each filled hole becomes a _unit_ in the inner link that
+provides what the parent resolved it to. That is the whole mechanism, and it
+is why this is not `scope` wearing a new word: `scope` was a second
+resolution path consulted when the first one failed, so a hole resolved by
+different rules depending on where its answer lived. An injected value is a
+provider like any other, with a real eval edge pointing at it, and
+resolution gained nothing to special-case. A collected hole becomes one unit
+per contributor, so the collector inside sees the same fan-in the parent did
+rather than one merged value.
+
+Those units are an implementation device and are filtered out of everything
+a reader or a backend sees. The edge they stand for is emitted at the parent
+level instead, where it is a true statement about the inclusion's own hole.
+
+`withheld` needed no change at all: an inclusion declares `collects` like
+any floe, so a parent contributing to an inner collection and reading the
+fold is refused by the check that was already there.
 
 ## Consequences
 
 Output propagates to the parent with unit names qualified by the inclusion
 path (`app/cert-manager`), because a backend wants one bucket and `graph`
-and `phases` have to span the nesting. Three things follow. A
-`deferredSite`'s `unit` becomes a path rather than a name. `singleton` is
-checked across the whole nesting rather than per link. And a deferred
-token's `source` must be rewritten as it crosses, in the same function that
-qualifies unit names — `mkDeferred` binds `source` at body-eval time, when
-the inner link cannot know it will be included, so an unqualified `source`
-compared against a qualified `unit` would make every deploy edge look
-cross-unit and send `phaseOf` looking for nodes the parent does not have.
+and `phases` have to span the nesting. So a `deferredSite`'s `unit` becomes
+a path rather than a name, and `phases` is keyed by what emits — an
+inclusion is not a thing that applies, its units are.
+
+A deferred token's `source` is rewritten as it crosses, in the same function
+that qualifies unit names, because `mkDeferred` binds `source` at body-eval
+time when the inner link cannot know it will be included. Only for a token
+minted _inside_, though: one that reached an inner unit from the parent
+already names a unit the parent knows, and qualifying that invents a node
+that does not exist. The same trap caught the inner graph's deploy edges,
+which are simply dropped — `deferredSites` is flattened to every depth and
+the parent re-derives every deploy edge from it, so keeping the inner ones
+would duplicate all of them and misname some.
+
+**`singleton` stays per link**, which contradicts an earlier draft of this
+decision and is the one thing building it changed. The check exists because
+two instances writing identical fixed paths merge silently wherever that
+output lands. Two inner links are two _apply targets_ — two clusters, two
+machines — so one nginx in each is correct and refusing it would be a bug.
+The output keys differ (`app/nginx`, `web/nginx`) precisely because the
+destinations do.
 
 The lesson worth keeping from 0003 is narrower than the one it drew. "Could
 anyone point at a check that would have caught this breaking?" is the right
