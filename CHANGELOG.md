@@ -64,12 +64,13 @@ The format is based on
   schema is pure data. `T.moduleType` is the one case it refuses, naming the
   field, since an option type's inhabitants are the module system's to know.
 
-- **`mkSig { behaviorTest = …; }`**, carried and **never run by core**.
-  Compatibility checks a provider's shape; nothing checks that a provider of
-  `DATABASE` serves one, which is the gap NixOS RFC 0189 names and fills and
-  this did not. Opaque because a VM test and a cluster to apply into have
-  nothing in common, so core would have to know which to run it — it stores
-  it and a distribution's harness runs it per provider.
+- **`narrows`**, and `link` checking that an inclusion's `exports` do. A
+  narrowing promises no more than what it narrows, which is the whole job of
+  an export signature and of a distribution's "this may cross a boundary"
+  table — and neither was checking it. The same relation compatibility
+  decides between a requirer and a provider, pointed inward. An export that
+  accidentally _widened_ used to surface where a peer read the field that
+  was not there.
 
 - **`T.package`**, a derivation or the store path it coerces to: the one way
   something built crosses a floe boundary. A package **set** is not a

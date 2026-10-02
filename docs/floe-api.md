@@ -575,27 +575,20 @@ Name the provide by `canonicalName`, not something fixed: naming every
 stub's provide `it` makes one name mean every signature in the catalogue,
 and `link` refuses that.
 
-### `behaviorTest`
-
-Compatibility checks a provider's **shape**. Nothing checks that a provider
-of `DATABASE` actually serves one, and that gap is real: NixOS RFC 0189 —
-the closest living relative to this design — has a `behaviorTest` attached
-to its contracts, and this did not.
-
-`mkSig` takes one and **core never runs it**:
+### `narrows`
 
 ```nix
-DATABASE = mkSig {
-  …;
-  behaviorTest = { kind = "nixos-vm"; script = "psql -h $HOST -c 'select 1'"; };
-};
+floe.narrows full shared   # [] when `shared` promises no more than `full`
 ```
 
-Opaque, because the two domains have nothing in common — a NixOS provider
-wants a VM test, a Kubernetes one wants a cluster to apply into — so core
-would have to know which to run it. It stores it, and a distribution's
-harness runs it for every provider it finds. Core owns coherence,
-distributions own domain legality, as everywhere else.
+What an export signature is to the provide it re-exports, and what a
+distribution's "this may cross a boundary" table holds. The same relation
+compatibility decides between a requirer and a provider, pointed inward, and
+`link` checks it for every `exports` entry — an export promising _more_ than
+what it re-exports is a field a peer can ask for and nothing can answer.
+
+Nothing checks that a provider of a signature **behaves** like one; see RFC
+0001 §7.
 
 ## Related
 

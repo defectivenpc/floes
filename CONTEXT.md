@@ -132,12 +132,6 @@ rather than written out. What lets one floe be checked alone, against stubs,
 so a failure names that floe and not whichever link rendered it. Possible
 because a schema is pure data. _Avoid_: fixture, mock, dummy.
 
-**Behaviour test**: A check every provider of a signature must pass, carried
-on the signature and run by a distribution's harness — never by core, which
-cannot know whether a VM test or a cluster is what running it means.
-Compatibility checks a provider's shape; this is the part of a promise that
-shape cannot express. From NixOS RFC 0189, which has it and this did not.
-
 **Derived field**: A field its provider computed by folding a collection.
 The linker withholds it from any peer that contributes to that same
 collection, because reading it there would be a cycle through the fold.
@@ -164,6 +158,13 @@ it. It exports a declared subset of what its units provide, and may leave an
 inner hole unfilled for the parent to fill — which is what makes one cluster
 reusable across labs. Backpack's `include`. _Avoid_: scope, nesting,
 sub-link.
+
+**Narrowing**: A signature promising no more than another — every field it
+declares present and agreeing in the one it narrows. What an export
+signature is to the provide it re-exports, and what a distribution's table
+of "this may cross a boundary" holds. The same relation [[compatibility]]
+decides between a requirer and a provider, pointed inward. _Avoid_: subset,
+restriction.
 
 **Export signature**: The signature an inclusion re-exports a provide under,
 usually narrower than the one inside. How a value that means something only

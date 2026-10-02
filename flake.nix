@@ -95,6 +95,63 @@
             echo ${builtins.unsafeDiscardStringContext (exampleSystem examples.nixos.nixosModules).config.system.build.toplevel.drvPath} > $out
           '';
 
+          # `T.package` against a real derivation, which is the only place one
+          # exists: `examples/` is deliberately `pkgs`-free, and `tests/` is
+          # evaluated with `lib` alone so it needs no store. The unit suite
+          # checks the type against a derivation-shaped attrset; this checks it
+          # against `pkgs.hello`.
+          #
+          # What it is really checking is the scan. A derivation is an attrset
+          # whose `out` is itself, so walking one is a stack overflow — and an
+          # uncatchable one, which made a package in `out` take down any link
+          # whose sites were read. Every NixOS module writing
+          # `environment.systemPackages` puts one there.
+          packages-in-output =
+            let
+              OUT = self.lib.mkSig {
+                name = "nixos.config";
+                canonicalName = "nixosConfig";
+                description = "A fragment of NixOS `config`, for the package check.";
+                fields = {
+                  environment = self.lib.T.record {
+                    systemPackages = self.lib.T.listOf self.lib.T.package;
+                  };
+                };
+              };
+
+              floe = self.lib.mkFloe {
+                name = "with-packages";
+                summary = "Emits a real derivation, the way a service module does.";
+                inputs.package = lib.mkOption { type = lib.types.package; };
+                out.nixosConfig = OUT;
+                body =
+                  { inputs, ... }:
+                  {
+                    out.nixosConfig.environment.systemPackages = [ inputs.package ];
+                  };
+              };
+
+              linked = self.lib.link {
+                units.hello = floe.instantiate { package = pkgs.hello; };
+              };
+
+              emitted = lib.head linked.out."nixos.config".hello.environment.systemPackages;
+            in
+            pkgs.runCommand "floe-packages-in-output"
+              {
+                # Forcing the site list is the half that used to crash.
+                sites = toString (builtins.length linked.deferredSites);
+                path = "${emitted}";
+              }
+              ''
+                test "$sites" = "0" || { echo "expected no deferred sites, got $sites" >&2; exit 1; }
+                case "$path" in
+                  /nix/store/*-hello-*) ;;
+                  *) echo "expected a hello store path, got $path" >&2; exit 1 ;;
+                esac
+                echo "$path" > $out
+              '';
+
           examples-nixos-fleet = pkgs.runCommand "floe-examples-nixos-fleet" { } ''
             echo ${builtins.unsafeDiscardStringContext (exampleSystem examples.nixos.fleetNixosModules).config.system.build.toplevel.drvPath} > $out
           '';

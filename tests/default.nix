@@ -1299,6 +1299,46 @@ in
     expected = true;
   };
 
+  # An export signature exists to promise *less* than the one inside. One
+  # promising more is a field a peer can ask for and nothing can answer, which
+  # used to surface at that read rather than here.
+  testAnExportThatWidensIsRefused = {
+    expr = fails (
+      floe.link {
+        units = {
+          minter = minter.instantiate { };
+          env =
+            (floe.mkInclusion {
+              name = "widening";
+              summary = "Fixture: exports a wider signature than it re-exports.";
+              requires.deferredThing = DEFERRED_THING;
+              # `insider` provides WIDE; NARROW is the narrowing of it, so
+              # exporting *WIDE* from a unit providing NARROW is the mistake.
+              provides.wide = WIDE;
+              exports.wide = "narrower";
+              units = _: {
+                emitter = emitter.instantiate { };
+                narrower =
+                  (floe.mkFloe {
+                    name = "narrower";
+                    summary = "Fixture: provides only the narrow signature.";
+                    provides.narrow = NARROW;
+                    body = _: {
+                      provides.narrow = {
+                        v = "x";
+                      };
+                    };
+                  }).instantiate
+                    { };
+              };
+            }).instantiate
+              { };
+        };
+      }
+    );
+    expected = true;
+  };
+
   testExportingFromAUnitThatIsNotThereIsRefused = {
     expr = fails (
       floe.link {
@@ -1447,32 +1487,75 @@ in
     expected = true;
   };
 
-  # Carried and never run: core cannot know whether a provider of `DATABASE`
-  # serves one, because a VM test and a cluster to apply into have nothing in
-  # common. A distribution's harness runs it for every provider it finds.
-  testASignatureCarriesItsBehaviorTestUntouched = {
-    expr =
-      (floe.mkSig {
-        name = "BEHAVED";
-        canonicalName = "behaved";
-        description = "Fixture: a signature with a conformance check attached.";
-        fields = {
-          v = T.str;
+  # ---- Internals are not reachable ----------------------------------------
+  #
+  # Both constructors carry an argument the library passes to itself. They were
+  # public and documented as internal, which is a promise rather than a
+  # property — and `mkFloe`'s own "the pattern is closed, an unknown key is an
+  # error" was untrue of the one key where it mattered.
+
+  # A forged `inclusion` would be routed as one with none of `mkInclusion`'s
+  # checks run — no `exports`, so nothing saying where its provides come from.
+  testAForgedInclusionIsRefused = {
+    expr = fails (
+      floe.mkFloe {
+        name = "forged";
+        summary = "Fixture: claims to be an inclusion.";
+        provides.narrow = NARROW;
+        inclusion = {
+          units = _: { };
+          exports = { };
+          defaults = { };
+          policies = [ ];
         };
-        behaviorTest = {
-          kind = "nixos-vm";
-          script = "curl -fsS http://localhost";
-        };
-      }).behaviorTest;
+      }
+    );
+    expected = true;
+  };
+
+  # And a forged `synthetic` would make a real unit vanish from `out`, `phases`
+  # and the graph, silently, because every view is computed as if a synthetic
+  # unit's value had simply arrived.
+  testForgedLinkInternalsAreRefused = {
+    expr = {
+      synthetic = fails (
+        floe.link {
+          units.minter = minter.instantiate { };
+          synthetic.minter = {
+            hole = "x";
+            signature = "X";
+          };
+        }
+      );
+      withinInclusion = fails (
+        floe.link {
+          units.minter = minter.instantiate { };
+          withinInclusion = "pretend";
+        }
+      );
+    };
     expected = {
-      kind = "nixos-vm";
-      script = "curl -fsS http://localhost";
+      synthetic = true;
+      withinInclusion = true;
     };
   };
 
-  testASignatureWithoutOneCarriesNull = {
-    expr = SELF.behaviorTest;
-    expected = null;
+  # ---- Narrowing -----------------------------------------------------------
+  #
+  # The relation an inclusion's `exports` rests on, and that a distribution
+  # carrying a "what crosses a boundary" table rests on one layer up. Neither
+  # was checking it.
+
+  testANarrowerSignatureNarrows = {
+    expr = floe.narrows WIDE NARROW;
+    expected = [ ];
+  };
+
+  # The direction that matters: a "narrowing" that adds a field is the bug this
+  # names, because it promises something the real one never had.
+  testAWideningIsNotANarrowing = {
+    expr = lib.length (floe.narrows NARROW WIDE);
+    expected = 1;
   };
 
   # ---- Packages (ADR 0008) -------------------------------------------------

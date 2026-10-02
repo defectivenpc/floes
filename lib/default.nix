@@ -16,6 +16,7 @@ in
   inherit (types) checkValue isDeferredToken stubFor;
   inherit (interfaces)
     mkSig
+    narrows
     renderInputs
     ;
   inherit (floe)

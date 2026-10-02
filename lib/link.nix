@@ -21,7 +21,32 @@ in
 rec {
   inherit candidatesFor;
 
+  # link: what a deployer calls.
+  #
+  # A gate in front of `linkWith`, which carries the two arguments the linker
+  # passes to itself when an inclusion's body is linked. They were public and
+  # documented as internal, which meant a deployer could declare units
+  # synthetic and have them vanish from `out`, `phases` and the graph — a
+  # silent one, since every view is computed as if a synthetic unit's value had
+  # simply arrived.
   link =
+    args:
+    let
+      forged = lib.intersectLists [ "synthetic" "withinInclusion" ] (lib.attrNames args);
+    in
+    if forged != [ ] then
+      throw (
+        "floe link error: ${lib.concatMapStringsSep ", " (a: "`${a}`") forged} is not an "
+        + "argument to `link`. It is how the linker tells itself that a link is the body "
+        + "of an inclusion, and a value from outside is carrying a hole inward. Build an "
+        + "inclusion with `mkInclusion`."
+      )
+    else
+      linkWith args;
+
+  # The linker, including the arguments it passes to itself. `link` below is
+  # what a deployer calls.
+  linkWith =
     {
       units,
       policies ? [ ],
@@ -560,14 +585,12 @@ rec {
             # becomes a unit inside providing what the parent resolved it to,
             # so the units inside resolve against one set of providers by one
             # rule.
-            inner =
+            # Every outer hole this inclusion declared, as what the inner link
+            # needs to know about it: the value, the signature the boundary
+            # allows, and the hole it came from so an error can name it.
+            injectedMeta =
               let
-                incl = inst.def.inclusion;
-
-                # What each injected unit is, keyed by the name it takes in the
-                # inner link: the hole it came from and the signature it
-                # answers, which is what the inner link's errors can name.
-                fromOuter =
+                fromSurface =
                   surface:
                   lib.listToAttrs (
                     lib.concatMap (
@@ -584,43 +607,61 @@ rec {
 
                 # One per contributor, so the collector inside sees the same
                 # fan-in the parent did rather than one merged value.
-                fromOuterCollections = lib.listToAttrs (
+                fromCollections = lib.listToAttrs (
                   lib.concatLists (
                     lib.mapAttrsToList (
                       hole: byUnit:
-                      lib.mapAttrsToList (
-                        contributor: value:
-                        lib.nameValuePair "${outerPrefix}${hole}:${contributor}" {
+                      lib.mapAttrsToList (contributor: value: {
+                        name = "${outerPrefix}${hole}:${contributor}";
+                        value = {
                           inherit hole value;
                           sig = inst.def.collects.${hole};
-                        }
-                      ) byUnit
+                        };
+                      }) byUnit
                     ) collected
                   )
                 );
-
-                injectedMeta = fromOuter "requires" // fromOuter "optional" // fromOuterCollections;
               in
-              if incl == null then
+              if inst.def.inclusion == null then
+                { }
+              else
+                fromSurface "requires" // fromSurface "optional" // fromCollections;
+
+            # The units inside, hoisted so their *headers* are reachable:
+            # `exports` is checked against them below, and that cannot happen
+            # in the preflight because `units` is a function of this
+            # inclusion's resolved holes, so there is nothing to read until the
+            # fixpoint has resolved them.
+            innerUnits =
+              if inst.def.inclusion == null then
+                { }
+              else
+                inst.def.inclusion.units {
+                  inputs = inst.inputsChecked;
+                  requires = resolved;
+                  collects = collected;
+                  floe = {
+                    name = u;
+                    mkDeferred = floeLib.mkDeferredFor u;
+                  };
+                }
+                // lib.mapAttrs (_: i: outerUnit i.sig i.value) injectedMeta;
+
+            # The link an inclusion is, or null. Every outer hole it declared
+            # becomes a unit inside providing what the parent resolved it to,
+            # so the units inside resolve against one set of providers by one
+            # rule.
+            inner =
+              if inst.def.inclusion == null then
                 null
               else
-                link {
+                linkWith {
+                  units = innerUnits;
                   synthetic = lib.mapAttrs (_: i: {
                     inherit (i) hole;
                     signature = i.sig.name;
                   }) injectedMeta;
-                  units =
-                    incl.units {
-                      inputs = inst.inputsChecked;
-                      requires = resolved;
-                      collects = collected;
-                      floe = {
-                        name = u;
-                        mkDeferred = floeLib.mkDeferredFor u;
-                      };
-                    }
-                    // lib.mapAttrs (_: i: outerUnit i.sig i.value) injectedMeta;
-                  inherit (incl) defaults policies;
+                  inherit (inst.def.inclusion) defaults policies;
                   inherit catalogue;
                   withinInclusion = u;
                 };
@@ -656,10 +697,59 @@ rec {
                 )
             ) (inst.def.inclusion.exports or { });
 
+            # And that each export really is a *narrowing* of what it re-exports.
+            #
+            # An export signature's whole job is to promise less than the one
+            # inside, which is what keeps a field meaningful only in here from
+            # leaving. One that promises *more* used to surface where a peer
+            # read the field that was not there — the same failure compatibility
+            # exists to prevent, reintroduced by the thing that replaced
+            # `T.local`. `interfaces.narrows` is the relation, pointed inward.
+            exportWidenings = lib.concatLists (
+              lib.mapAttrsToList (
+                exportName: ref:
+                let
+                  parts = lib.splitString "/" ref;
+                  iu = lib.head parts;
+                  provs = (innerUnits.${iu} or null).def.provides or { };
+                  provideName =
+                    if lib.length parts > 1 then
+                      lib.elemAt parts 1
+                    else if lib.length (lib.attrNames provs) == 1 then
+                      lib.head (lib.attrNames provs)
+                    else
+                      null;
+                  innerSig = if provideName == null then null else provs.${provideName} or null;
+                  declared = inst.def.provides.${exportName};
+                  # A ref naming nothing, or a unit providing several things, is
+                  # reported by `exported` with a better message than this could
+                  # manage. Nothing to say about narrowing until there is a
+                  # signature on both sides.
+                  added = if innerSig == null then [ ] else interfaces.narrows innerSig declared;
+                in
+                map (
+                  m:
+                  "inclusion '${u}': exports '${exportName}' as '${declared.name}', which promises "
+                  + "more than the '${innerSig.name}' it re-exports from '${ref}' — ${m}"
+                ) added
+              ) (inst.def.inclusion.exports or { })
+            );
+
             evaluated =
               if inst.def.inclusion != null then
                 {
-                  provides = exported;
+                  provides =
+                    if exportWidenings != [ ] then
+                      throw (
+                        "floe link error: an inclusion's export promises more than what it "
+                        + "re-exports.\n  - "
+                        + lib.concatStringsSep "\n  - " exportWidenings
+                        + "\n\nAn export signature exists to promise *less* than the one inside, "
+                        + "which is what keeps a value meaningful only in there from leaving. One "
+                        + "promising more is a field a peer can ask for and nothing can answer."
+                      )
+                    else
+                      exported;
                   # An inclusion emits nothing of its own; its units' output
                   # propagates to the parent. One mechanism, not two.
                   out = { };

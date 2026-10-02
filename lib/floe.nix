@@ -74,7 +74,9 @@ rec {
           );
       };
 
-  mkFloe =
+  # The constructor, including the argument an author may not set. `mkFloe`
+  # below is what an author calls.
+  mkFloeWith =
     {
       name,
 
@@ -294,6 +296,25 @@ rec {
     in
     def;
 
+  # mkFloe: the author-facing constructor.
+  #
+  # A gate rather than a second parameter list, because duplicating eleven
+  # argument names is two places to forget a surface. `inclusion` is refused
+  # here by name — it used to be a public argument documented as internal,
+  # which made `mkFloe`'s "the pattern is closed, an unknown key is an error"
+  # promise untrue of the one key where it mattered: a floe carrying a forged
+  # `inclusion` is routed as one, with none of `mkInclusion`'s checks run.
+  mkFloe =
+    args:
+    if args ? inclusion then
+      throw (
+        "floe '${args.name or "?"}': `inclusion` is not an argument to `mkFloe`. A floe "
+        + "whose body is a link is built by `mkInclusion`, which checks that every "
+        + "`provides` says where it comes from."
+      )
+    else
+      mkFloeWith args;
+
   # mkInclusion: a floe whose body is a link, so a lab holding clusters is the
   # same mechanism as a cluster holding floes rather than a second one beside it.
   # Backpack's `include`, and what replaces the `scope` that ADR 0003 deleted —
@@ -369,7 +390,7 @@ rec {
         else
           null;
     in
-    builtins.seq _exports (mkFloe {
+    builtins.seq _exports (mkFloeWith {
       inherit
         name
         summary

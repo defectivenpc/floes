@@ -430,9 +430,18 @@ from it.
 ```
 
 The entire result is serializable JSON. It is the IR consumed by backends
-(the existing Rust CLI). `inputs` carries each floe's rendered input
-documentation (name, type description, default, description) from its
-declarations, enabling generated per-floe reference docs.
+(the existing Rust CLI).
+
+> **Amended: once a backend has substituted.** A deferred token carries a
+> `__toString` that throws, and `builtins.toJSON` prefers it, so a result
+> holding one is not serialisable — deliberately. A token reaching JSON
+> means a backend is about to ship a placeholder to the world, and the throw
+> is the same refusal that answers §7.1. `link.deferredSites` is the list of
+> what to substitute first; nothing in core strips them, because a stripper
+> with no caller is the speculative generality ADR 0003 is about. `inputs`
+> carries each floe's rendered input documentation (name, type description,
+> default, description) from its declarations, enabling generated per-floe
+> reference docs.
 
 ### 4.8 Deferred values
 
@@ -646,12 +655,20 @@ than a paragraph.
    unspecified on the ADR 0003 rule: machinery nobody exercises is worse
    than machinery that does not exist, because it still costs vocabulary.
 
-One question this RFC did not ask, which the closest living relative does
-answer: **nothing checks that a provider of a signature behaves like one.**
-Compatibility checks shape. NixOS RFC 0189 attaches a `behaviorTest` to its
-contracts and every provider must pass it. `mkSig` now carries one, and core
-never runs it — a VM test and a cluster to apply into have nothing in
-common, so which it means is a distribution's to know.
+**A sixth question this RFC did not ask**, and the one still fully open:
+**nothing checks that a provider of a signature behaves like one.**
+Compatibility checks shape — that `DATABASE.port` is a port — and nothing
+checks that what answers `DATABASE` serves a database. NixOS RFC 0189, the
+closest living relative to this design, attaches a `behaviorTest` to its
+contracts and requires every provider to pass it.
+
+`mkSig` briefly carried such a field, stored and never run, on the argument
+that a VM test and a cluster to apply into have nothing in common so only a
+distribution could run it. It was deleted: nothing ran it, nothing could,
+and a slot awaiting a design costs vocabulary while buying nothing — which
+is ADR 0003's rule applied to this document's own suggestion. The gap is
+recorded here, where this repository keeps gaps, and what would close it is
+a distribution that actually runs such a thing, not a field for one.
 
 ## 8. Implementation plan
 

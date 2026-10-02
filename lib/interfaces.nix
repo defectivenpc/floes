@@ -30,21 +30,6 @@
       description ? null,
       fields,
 
-      # behaviorTest :: anything | null
-      #
-      # A check that every provider of this signature must pass, carried here
-      # and **never run by core**. Compatibility checks a provider's *shape*;
-      # nothing checks that a provider of `DATABASE` actually serves one, and
-      # that is the gap NixOS RFC 0189's `behaviorTest` names — the closest
-      # living relative to this design has it and this did not.
-      #
-      # Opaque because the two domains have nothing in common: a NixOS provider
-      # wants a VM test, a Kubernetes one wants a cluster to apply into. Core
-      # would have to know which to run it, so it stores it and a
-      # distribution's harness runs it for every provider it finds. Same
-      # layering as everywhere else: core owns coherence, distributions own
-      # domain legality.
-      behaviorTest ? null,
     }:
     if canonicalName == null then
       throw (
@@ -69,8 +54,20 @@
           ;
         shape = if fields ? tag then fields else types.record fields;
         fields = if fields ? tag then fields.fields or { } else fields;
-        inherit behaviorTest;
       };
+
+  # narrows :: Signature -> Signature -> [string]
+  #
+  # Whether `shared` promises no more than `full` — empty when it is a
+  # narrowing of it, one entry per field it added or retyped otherwise.
+  #
+  # The same relation compatibility decides between a requirer and a provider,
+  # pointed the other way and given a name, because two places rest on it and
+  # neither was checking it. An inclusion re-exports a provide under a narrower
+  # signature; a distribution carrying a "what crosses a boundary" table does
+  # the same thing one layer up. A narrowing that accidentally *widens* used to
+  # surface where a consumer read the field that was not there.
+  narrows = full: shared: types.mismatches [ ] full.shape shared.shape;
 
   renderInputs = lib.mapAttrs (
     _: opt: {
