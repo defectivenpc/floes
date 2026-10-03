@@ -16,7 +16,7 @@ distribution
 > | `checkFloe` (§4.9)        | Never built. Replaced by linking against stubs, so a suite exercises the real linker rather than an approximation. The stubs and the harness are a distribution's — catallaxy enforces one suite per floe. Core briefly shipped a `T.stubFor` to derive stub values from a signature, and it was deleted: a distribution's stubs carry _meaningful_ values — a plausible subnet, a context name a floe branches on — and a record's fields are all required anyway, so a derived stub bought only that a signature gaining a field would fail quietly instead of loudly. For a harness, loudly is right. |
 > | `mkHelmFloe` (§4.5)       | Never built, and unbuildable as specified — it wires `out.k8s.helmRelease`, a kind this distribution does not have. The sugar that exists is `catallaxy.mkComponentFloe`, which defaults `requires.cluster` and `out.component` and does nothing chart-specific.                                                                                                                                                                                                                                                                                                                                         |
 > | Hole renaming (§3.2, §6)  | **Built**, as `instance.bind { <hole> = "<unit>"; }`. Resolution is still by signature name; a binding narrows the candidates before the arity rule applies, and is the deployer's because a floe does not know its peers' names.                                                                                                                                                                                                                                                                                                                                                                        |
-> | `T.template` (§3.1, §7)   | Never built, and the only §7 question still open. `collects` took half of what it was for and retrieval signatures took the other half; §7.5 records what is left and why it stays unspecified.                                                                                                                                                                                                                                                                                                                                                                                                          |
+> | `T.template` (§3.1, §7)   | Never built, and now closed: `collects` took half of what it was for and retrieval signatures took the other half, and nothing has asked for the residue. §7.5 says so.                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 >
 > **Where the words come from.** This RFC does not say so, and it is the
 > single most explanatory fact about the design: the model is Haskell's
@@ -375,6 +375,15 @@ forwards any passthrough input at normal priority, and projects
 `out.k8s.helmRelease.values` from `config.chartValues`. Module-system merge
 then gives deployer-over-computed precedence for free.
 
+> **Amended: enforced by review, and that is the ceiling.** This is the
+> RFC's only normative MUST and nothing checks it, which used to be recorded
+> as a gap. It is not a checkable one: the rule is that two expressions
+> share a source node, which is a question about the shape of an author's
+> code rather than about any value a link can inspect. What enforces it in
+> practice is the generated per-floe interface document, which renders a
+> provide's value beside the output it was projected from, so a pair
+> computed twice and drifting apart is visible on one page.
+
 **Projection rule (normative, general):** any provide whose meaning depends
 on emitted output MUST be projected from the same `config` nodes the output
 is projected from, never computed in parallel:
@@ -588,9 +597,10 @@ because floe's checked surface is data, which is language-agnostic.
 
 ## 7. Open questions
 
-Four of the five are answered. The answers are recorded here because this is
-the document that asked, and in an ADR each where the argument is longer
-than a paragraph.
+All five are answered. The answers are recorded here because this is the
+document that asked, and in an ADR each where the argument is longer than a
+paragraph. A sixth question this RFC did not ask is at the end, and is the
+only one still open.
 
 1. **Deferred transparency in interpolation.** _Answered: it refuses._
    `"https://${deferredValue}"` is a `throw` the token carries as its
@@ -650,19 +660,21 @@ than a paragraph.
    several frames away, naming no floe, no field and no provider. See
    ADR 0007.
 
-5. **`T.template` design.** _Still open, and the only one._ The residual
-   case is unchanged: data a provider cannot fully know, which a consumer
-   completes. Two things have narrowed it since. `collects` covers the half
-   where the consumer holds the knowledge and inverts the direction — a
-   workload declares its own claim and the provider folds every claim, which
-   is how `examples/nixos` provisions a database role per consumer without a
-   template anywhere. And a retrieval signature covers the half where the
-   missing part is a value that does not exist yet.
+5. **`T.template` design.** _Closed: nothing has asked for it._ The residual
+   case this named — data a provider cannot fully know, which a consumer
+   completes — was taken by two mechanisms that arrived for other reasons.
+   `collects` covers the half where the consumer holds the knowledge and
+   inverts the direction: a workload declares its own claim and the provider
+   folds every claim, which is how `examples/nixos` provisions a database
+   role per consumer with no template anywhere. A retrieval signature covers
+   the half where the missing part is a value that does not exist yet.
 
    What is left is a provider-authored _string_ with named holes, and
-   nothing in either example or in catallaxy has wanted one. It stays
-   unspecified on the ADR 0003 rule: machinery nobody exercises is worse
-   than machinery that does not exist, because it still costs vocabulary.
+   nothing has wanted one: not either example domain, and not forty floes
+   across five labs in catallaxy. Closed on ADR 0003's rule — machinery
+   nobody exercises is worse than machinery that does not exist, because it
+   still costs vocabulary — and reopenable the moment something asks, with a
+   use case attached.
 
 **A sixth question this RFC did not ask**, and the one still fully open:
 **nothing checks that a provider of a signature behaves like one.**
