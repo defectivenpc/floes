@@ -618,12 +618,20 @@ than a paragraph.
    any body evaluates, so the eval graph and its strongly-connected
    components are known without running anything. Neither
    discouraged-by-convention nor rejected-by-linker: exposed as
-   `link.cycles`, with the component as the unit of caching, and refusing
-   them available as a _policy_ for a distribution that wants acyclic eval.
+   `link.cycles`, with every unit absent from one its own cache unit, and
+   refusing them available as a _policy_ for a distribution that wants
+   acyclic eval.
 
-   Rejecting them outright would have traded a working property for a
-   caching convenience — `examples/nixos` depends on two mutual cycles, and
-   a cycle's blast radius being one link is half of what floe does about
+   Building that exposure then measured what the caching convenience is
+   worth, and the answer is sobering: `examples/nixos`'s fleet is
+   twenty-nine units in **one component of twenty-six**, because a namespace
+   with an owner is a cycle through nearly everything. An eval edge is per
+   hole where the dependency is per field, so the graph is coarser than the
+   truth. ADR 0008 carries the numbers.
+
+   Rejecting them outright would still have traded a working property for
+   that convenience — `examples/nixos` depends on mutual cycles, and a
+   cycle's blast radius being one link is half of what floe does about
    NixOS's recursion problem. See ADR 0008, which also records the other
    thing this question decides: packages, not package sets, as inputs.
 
