@@ -18,10 +18,40 @@ discouraged-by-convention or rejected-by-linker. Neither. They are derived.
 
 `wiringOne` and `wiringAll` are computed from headers before any body
 evaluates, so the eval graph and its strongly-connected components are known
-without running anything. The linker exposes them as `link.cycles`, and a
-component — usually one unit — is the unit of caching. No declaration is
+without running anything. The linker exposes them as `link.cycles`, and
+every unit absent from all of them is its own cache unit. No declaration is
 required, because a declaration would be ceremony for a fact the linker
 already has, and a wrong declaration would be a new error class.
+
+### What exposing them immediately showed
+
+This section first claimed that a component is "usually one unit". Building
+`link.cycles` measured it, and that is false of the worked example by a wide
+margin. `examples/nixos`:
+
+| link  | units | components | cache units |
+| ----- | ----- | ---------- | ----------- |
+| small | 5     | one of 5   | 1           |
+| fleet | 29    | one of 26  | 4           |
+
+So per-floe caching, on the design this library is for, would buy almost
+nothing as the example is structured. "A floe is a natural memoization unit"
+is true of a floe in isolation and false of a floe in a link with an owned
+namespace.
+
+The cause is structural, and it is `docs/adr/0001`'s own design rather than
+an accident: a namespace with an owner means one floe collecting from every
+peer, and those peers reaching the owner back through whatever routes them.
+That is a cycle through almost everything.
+
+What would dissolve it is visible in the same place. **An eval edge is per
+hole; the dependency it stands for is per field.** `nginx` reads
+`NETWORK.domain`, which does not depend on the port collection at all —
+`openPorts` is the field that does, and `T.derivedFrom` already marks
+exactly it. The graph is coarser than the truth, and a field-granularity
+graph is where a real answer would have to start. Nothing here does that, so
+the honest statement of this ADR's caching half is: the _preconditions_ are
+settled, and the gain is now measured and looks small.
 
 Rejecting cycles outright was the alternative. The NixOS example depends on
 two mutual ones — nginx needs the domain while `networking` needs nginx's
@@ -34,11 +64,12 @@ caching convenience.
 A distribution that wants acyclic eval gets it as a **policy** over
 `link.cycles`, in one line, which is where domain legality already lives.
 
-This also pays off immediately, before any caching exists. A component is
-known pre-evaluation, so a structural read inside one can be refused up
-front — the stratification check RFC 0001 describes, and the reason
-`examples/nixos/broken.nix`'s `interpolating` case is currently on the wrong
-side of the line where no test can hold it.
+This also pays off before any caching exists. A component is known
+pre-evaluation, so a structural read inside one could be refused up front —
+the stratification check RFC 0001 describes. An earlier draft pointed at
+`examples/nixos/broken.nix`'s `interpolating` case as the example; that one
+has been catchable since a deferred token learned to refuse interpolation,
+so what remains is the general motivation rather than that case.
 
 ## Packages are inputs; a package set is not
 

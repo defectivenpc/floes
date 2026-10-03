@@ -719,6 +719,47 @@ rec {
         ) instNames
       );
 
+      # ---- Cycles ------------------------------------------------------------
+      #
+      # The strongly-connected components of the eval graph. Derivable here
+      # because the eval graph comes from headers — nothing has evaluated when
+      # this is known — which is the whole of why ADR 0008 answers RFC 0001's
+      # open question 3 with "derived" rather than "declared".
+      #
+      # Worth exposing rather than merely knowing: a floe's output depends on
+      # its declared inputs and resolved requires and nothing else, so a unit
+      # is a natural memoization unit — unless it sits in a cycle, in which
+      # case the cycle is. Naming the cycles is therefore everything core can
+      # say about caching without building it, because **every unit not in one
+      # is its own cache unit.**
+      #
+      # It is also what a distribution needs in order to refuse cycles, which
+      # some will want and this deliberately does not:
+      #
+      #   policies = [ (r: map (c: "cycle: ${lib.concatStringsSep " -> " c}") r.cycles) ];
+      #
+      # Spanning the nesting, like `phases` and unlike `wiring`: a cycle inside
+      # an inclusion is a cache-unit fact the parent needs too.
+      reachable =
+        let
+          edges = lib.filter (e: e.kind == "eval") (evalEdges ++ innerEdges);
+          direct = lib.genAttrs nodeNames (u: lib.unique (map (e: e.to) (lib.filter (e: e.from == u) edges)));
+          step =
+            reach: lib.mapAttrs (_: rs: lib.unique (rs ++ lib.concatMap (v: reach.${v} or [ ]) rs)) reach;
+        in
+        # A path grows by at most one unit per round, so as many rounds as
+        # there are units is the closure. Cheaper than detecting the fixed
+        # point at the sizes a link has, and it terminates by construction.
+        lib.foldl' (acc: _: step acc) direct nodeNames;
+
+      # A unit is in a cycle exactly when it can reach itself, and its cycle is
+      # everything it reaches that reaches it back.
+      cycles = lib.unique (
+        map (
+          u: lib.sort (a: b: a < b) (lib.filter (v: lib.elem u (reachable.${v} or [ ])) reachable.${u})
+        ) (lib.filter (u: lib.elem u (reachable.${u} or [ ])) nodeNames)
+      );
+
       deployEdges = lib.unique (
         lib.concatMap (
           site:
@@ -866,6 +907,10 @@ rec {
         # it. Deploy edges are derived from tokens in output, and output comes
         # from leaves, so this needs no special case beyond the flattening.
         phases = lib.genAttrs leafNames (phaseOf [ ]);
+
+        # Every group of units whose holes resolve to each other, at any depth.
+        # A unit absent from all of them is its own cache unit. ADR 0008.
+        inherit cycles;
 
         inherit deferredSites;
 

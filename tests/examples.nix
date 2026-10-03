@@ -707,6 +707,67 @@ lib.runTests {
     };
   };
 
+  # ---- What the cycles say about caching (ADR 0008) ----------------------
+  #
+  # `link.cycles` was built to make ADR 0008's claim usable — a unit is a
+  # natural memoization unit unless it sits in a cycle, in which case the cycle
+  # is. Measuring it is what showed the claim is far weaker than it reads, so
+  # these numbers are pinned: they are the argument, and a change in them is a
+  # change in what caching could ever buy.
+
+  # The small link's whole core is *one* component. The README called this "two
+  # mutual cycles", which is true of the edge pairs and understates the result:
+  # nginx is in both, so they are one component — and the databases join it
+  # through `networking`'s collection, so five of five units are one unit.
+  testTheSmallLinkIsOneComponent = {
+    expr = nixos.link.cycles;
+    expected = [
+      [
+        "analytics"
+        "main"
+        "networking"
+        "nginx"
+        "webapp"
+      ]
+    ];
+  };
+
+  # And the fleet, which is the number that matters: twenty-nine units, one
+  # component of twenty-six, so the cache-unit partition is four. Per-floe
+  # caching would buy almost nothing on this link as it is structured.
+  #
+  # The cause is structural rather than accidental, and it is ADR 0001's own
+  # design: a namespace with an owner means one floe collecting from everyone,
+  # and everyone reaching that floe back through the proxy. An eval edge is
+  # per *hole*, while the dependency it stands for is per *field* — nginx reads
+  # `NETWORK.domain`, which does not depend on the port collection at all. The
+  # cycle is real at hole granularity and would dissolve at field granularity,
+  # which is where a future answer would have to look.
+  testTheFleetIsOneComponentOfTwentySix = {
+    expr =
+      let
+        inCycles = lib.concatLists nixos.fleet.cycles;
+      in
+      {
+        units = lib.length nixos.fleet.graph.nodes;
+        components = map lib.length nixos.fleet.cycles;
+        cacheUnits =
+          lib.length nixos.fleet.cycles + (lib.length nixos.fleet.graph.nodes - lib.length inCycles);
+      };
+    expected = {
+      units = 29;
+      components = [ 26 ];
+      cacheUnits = 4;
+    };
+  };
+
+  # The contrast, and the reason the k8s example was worth having: resolution
+  # is a chain, so every unit is its own cache unit.
+  testTheKubernetesExampleHasNoCycles = {
+    expr = k8s.link.cycles;
+    expected = [ ];
+  };
+
   # ---- The lab: a link as a unit of another link (ADR 0006) --------------
   #
   # The worked multi-link example `docs/adr/0003` set as the condition for
