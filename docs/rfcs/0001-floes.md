@@ -622,12 +622,13 @@ than a paragraph.
    refusing them available as a _policy_ for a distribution that wants
    acyclic eval.
 
-   Building that exposure then measured what the caching convenience is
-   worth, and the answer is sobering: `examples/nixos`'s fleet is
-   twenty-nine units in **one component of twenty-six**, because a namespace
-   with an owner is a cycle through nearly everything. An eval edge is per
-   hole where the dependency is per field, so the graph is coarser than the
-   truth. ADR 0008 carries the numbers.
+   Building that exposure then measured what the caching convenience was
+   worth, and closed it: `examples/nixos`'s fleet is twenty-nine units in
+   **one component of twenty-six**, because a namespace with an owner is a
+   cycle through nearly everything — and twenty-nine floes are 3% of a whole
+   NixOS evaluation anyway, so a perfect cache saves 74 ms of 2.2 s. Not
+   worth building. ADR 0008 carries the numbers and the reasons the two
+   decisions it records still stand without it.
 
    Rejecting them outright would still have traded a working property for
    that convenience — `examples/nixos` depends on mutual cycles, and a

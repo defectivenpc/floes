@@ -1,17 +1,49 @@
 # Per-floe eval stays cacheable, which decides two unrelated-looking things
 
-Eval time is the complaint NixOS actually gets, and a floe's output depends
-only on its declared inputs and resolved requires, which makes it a natural
-memoization unit — `examples/README.md` calls that floe's strongest answer
-to the complaint, and records that nothing implements it because the single
-`lib.fix` in `lib/link.nix` stands in the way.
+> **Status: the premise is closed; both decisions stand.** This was written
+> to keep per-floe caching _possible_, on the belief that a floe is a
+> natural memoization unit and that eval time is the complaint NixOS gets.
+> Both halves of that were then measured and neither survived:
+>
+> |                                                     |                                                           |
+> | --------------------------------------------------- | --------------------------------------------------------- |
+> | the fleet's cache partition                         | **4 units of 29** — one component of 26                   |
+> | twenty-nine floes, against a whole NixOS evaluation | **36 MB and 3% of the time**                              |
+> | catallaxy's `homelab.local` lab plan                | 0.58 s / 171 MB, of which linking is single-digit percent |
+>
+> So caching cannot be done per floe — the components are the link — and
+> there is almost nothing to win if it could, because the 2.1 s is nixpkgs
+> and the module system. A perfect floe cache saves 74 ms of a 2.2 s
+> evaluation. **Not worth building**, and recorded here as decided rather
+> than pending so that nobody spends a month re-deriving it. The `lib.fix`
+> knot can stay; there was nothing behind it.
+>
+> Both decisions below stand, each on a reason independent of caching, which
+> is why this is a status note rather than a withdrawal:
+>
+> - **Cycles are derived, not declared.** That answers RFC 0001's open
+>   question 3 on its own, gives `link.cycles` — which is what produced the
+>   measurement above — and makes the stratification check possible. A
+>   distribution refusing cycles gets it as a policy.
+> - **Packages are inputs; a package set is not.** A package set can be
+>   neither hashed _nor serialised into the IR_, and which nixpkgs and which
+>   overlays are the deployer's choice regardless. The caching argument was
+>   one reason among several, and the weakest of them.
+>
+> What remains useful about the caching question is `link.cycles` itself: if
+> a link ever has small components and linking dominates, it will say so.
 
-Nothing here implements it either. What this records is the decision to stop
-foreclosing it, because two choices that look unrelated both decide whether
-it stays possible, and both are expensive to revisit once there are floes in
-the wild.
+The argument, as it stood when this was written: eval time is the complaint
+NixOS gets, and a floe's output depends only on its declared inputs and
+resolved requires, which makes it a natural memoization unit. Nothing
+implemented it, because the single `lib.fix` in `lib/link.nix` stands in the
+way — so this recorded the decision to stop _foreclosing_ it, on the grounds
+that two choices which look unrelated both decide whether it stays possible,
+and both would be expensive to revisit once there are floes in the wild.
 
-## Cycles are derived, and the cycle is the cache unit
+That reasoning was sound and its premise was wrong. See the status note.
+
+## Cycles are derived
 
 RFC 0001's open question 3 asked whether eval-time cycles between floes are
 discouraged-by-convention or rejected-by-linker. Neither. They are derived.

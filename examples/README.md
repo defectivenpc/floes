@@ -276,25 +276,31 @@ as powerful as `mkForce` on a shared tree.
 module system's ad hoc merges are exactly as they were. Floe encapsulates
 that problem; it does not solve it.
 
-**Incrementality is not built, and `link.cycles` now says it would not help
-much.** A floe's output depends only on its declared inputs and requires,
-which makes it a natural memoization unit — in isolation. In a link it is
-the _component_ that is the cache unit, and the components here are
-enormous: the small link is one component of five, and the fleet is one of
-twenty-six out of twenty-nine, so the cache-unit partition is four.
+**Incrementality is not built, and is not worth building.** A floe's output
+depends only on its declared inputs and requires, which makes it a natural
+memoization unit — in isolation. In a link it is the _component_ that is the
+cache unit, and `link.cycles` measured those: the small link is one
+component of five, and the fleet is one of twenty-six out of twenty-nine, so
+the cache-unit partition is four.
 
-That is this design's own doing rather than an accident. A namespace with an
-owner means one floe collecting from every peer and those peers reaching it
-back through the proxy, which is a cycle through nearly everything. The
-single `lib.fix` in `lib/link.nix` is still in the way too, but it is no
-longer the first problem.
+Worse for the idea, there is nothing much to win. The table above says
+twenty-nine floes cost 36 MB and about 3% of a whole NixOS evaluation, so a
+perfect floe cache saves 74 ms of 2.2 s. The 2.1 s is nixpkgs and the module
+system, which floe sits on top of without making either faster. This used to
+be described here as floe's strongest answer to the complaint people have
+about NixOS eval time; that was wrong twice over.
+[ADR 0008](../docs/adr/0008-per-floe-eval-stays-cacheable.md) closes it with
+the numbers.
 
-What would dissolve it is in the same place: an eval edge is per _hole_, and
-the dependency is per _field_. `nginx` reads `NETWORK.domain`, which does
-not depend on the port collection — `openPorts` is the field that does, and
-`T.derivedFrom` already marks exactly that. The graph is coarser than the
-truth. `testTheFleetIsOneComponentOfTwentySix` pins the numbers so this
-stays a measurement rather than a worry.
+The cause of the large components is this design's own doing rather than an
+accident: a namespace with an owner means one floe collecting from every
+peer and those peers reaching it back through the proxy, which is a cycle
+through nearly everything. What would dissolve it is in the same place — an
+eval edge is per _hole_, and the dependency is per _field_. `nginx` reads
+`NETWORK.domain`, which does not depend on the port collection;
+`T.derivedFrom` already marks the field that does. That is where anyone
+reopening this should start, and `testTheFleetIsOneComponentOfTwentySix`
+pins the numbers.
 
 ## The contrast with `k8s/`
 
