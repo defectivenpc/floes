@@ -4,11 +4,10 @@ Declared in `lib/`, and reached as `floe.mkFloe` after
 `mkFloeLib nixpkgs.lib`.
 
 ```nix
-floe.mkFloe       # a unit with declared surfaces
-floe.mkInclusion  # a unit whose body is a link
-floe.mkSig        # a named schema for anything a floe commits to
-floe.link         # resolve, seal, collect
-floe.T            # the data schemas a signature is built from
+floe.mkFloe   # a unit with declared surfaces
+floe.mkSig    # a named schema for anything a floe commits to
+floe.link     # resolve, seal, collect
+floe.T        # the data schemas a signature is built from
 ```
 
 A **distribution** supplies the rest: a catalogue of signatures — both the
@@ -183,90 +182,6 @@ Declaring `provides` in `mkFloe` _and_ defining it in the body is not
 duplication: the linker resolves every hole from headers before any body
 evaluates, which is what makes a link's wiring checkable without running
 anything.
-
-## `mkInclusion`
-
-A floe whose body is a link, so a lab holding clusters is the same mechanism
-as a cluster holding floes rather than a second one beside it. Backpack's
-`include`, and what replaces the `scope` that
-[ADR 0003](adr/0003-trim-unexercised-surface.md) deleted.
-
-```nix
-floe.mkInclusion {
-  name = "cluster-env";
-  summary = "One cluster and the workloads in it, linked as a unit.";
-
-  inputs.version = lib.mkOption { type = lib.types.str; default = "1.31"; };
-
-  requires.issuer = sigs.ISSUER;            # left open; the parent fills it
-  provides.clusterSummary = sigs.CLUSTER_SUMMARY;
-  exports.clusterSummary = "cluster";       # from this unit inside
-
-  units = { inputs, requires, collects, floe }: {
-    cluster = floes.cluster.instantiate { inherit (inputs) version; };
-    podinfo = floes.podinfo.instantiate { };
-  };
-}
-```
-
-Everything an ordinary floe has, it has: `inputs`, `.instantiate`, `.bind`,
-the three hole arities, `provides`. What it does not have is `out` — an
-inclusion emits nothing of its own, and its units' output propagates with
-their names qualified. `examples/k8s` is the worked case.
-
-### Holes left open
-
-The holes an inclusion declares are the ones its units leave unfilled, and
-the parent resolves them like any other. This is the half worth having: a
-cluster with an open `SECRET_STORE` is reusable across labs, and a lab can
-_supply_ its clusters rather than only reading from them.
-
-A filled hole becomes a **unit inside** that provides what the parent
-resolved it to — not a second resolution path consulted when the first
-fails, which is what `scope` was, but a provider like any other with a real
-eval edge pointing at it. A collected hole becomes one unit per contributor,
-so the collector inside sees the same fan-in the parent did. Those units are
-an implementation device and appear in nothing you read; the edge they stand
-for is emitted at the parent level, where it is a fact about the inclusion's
-own hole.
-
-### `exports`, and where `T.local` went
-
-`provides` is a signature exactly as any floe declares one, and is usually
-_narrower_ than the one inside. `exports` says which inner provide each one
-comes from, spelled the way `.bind` spells a provider — `<unit>` or
-`<unit>/<provide>`. One names a provider outside, the other names one
-inside.
-
-Because the export is itself a sealing step, this is what keeps a value
-meaningful only inside from leaving. In `examples/k8s`, `CLUSTER` carries an
-`apiServer` address that means nothing to a peer outside the cluster it
-describes, and `CLUSTER_SUMMARY` does not carry it:
-
-```nix
-provides.clusterSummary = sigs.CLUSTER_SUMMARY;   # { version }
-exports.clusterSummary  = "cluster";              # provides { version, apiServer }
-```
-
-The lab reads `version` and cannot reach `apiServer`. That is the whole
-replacement for a per-field locality marking: the boundary declares what
-crosses, rather than every field carrying a marking for a boundary most of
-them never meet. The cost is one extra signature name per concept that
-actually crosses a link boundary.
-
-### What spans the nesting
-
-`out` is one flat bucket with inner units qualified (`app/podinfo`), because
-a backend wants one bucket and should not care how deep anything sat.
-`deferredSites` and `phases` follow it, and `phases` is keyed by what emits
-— an inclusion is not a thing that applies, its units are.
-
-`graph` is hierarchical where the link is: an inclusion is a node, and so
-are its units.
-
-`singleton` stays **per link**. Two inner links are two apply targets, so
-one `nginx` in each is correct — the output keys differ because the
-destinations do.
 
 ## `mkSig`
 

@@ -17,37 +17,10 @@ let
     catalogue: sigName:
     lib.attrNames (lib.filterAttrs (_: sigNames: lib.elem sigName sigNames) catalogue);
 in
-# `rec`, because an inclusion is a floe whose body is a link, so `link` runs
-# itself for the units inside one. ADR 0006.
-rec {
+{
   inherit candidatesFor;
 
-  # link: what a deployer calls.
-  #
-  # A gate in front of `linkWith`, which carries the two arguments the linker
-  # passes to itself when an inclusion's body is linked. They were public and
-  # documented as internal, which meant a deployer could declare units
-  # synthetic and have them vanish from `out`, `phases` and the graph — a
-  # silent one, since every view is computed as if a synthetic unit's value had
-  # simply arrived.
   link =
-    args:
-    let
-      forged = lib.intersectLists [ "synthetic" "withinInclusion" ] (lib.attrNames args);
-    in
-    if forged != [ ] then
-      throw (
-        "floe link error: ${lib.concatMapStringsSep ", " (a: "`${a}`") forged} is not an "
-        + "argument to `link`. It is how the linker tells itself that a link is the body "
-        + "of an inclusion, and a value from outside is carrying a hole inward. Build an "
-        + "inclusion with `mkInclusion`."
-      )
-    else
-      linkWith args;
-
-  # The linker, including the arguments it passes to itself. `link` below is
-  # what a deployer calls.
-  linkWith =
     {
       units,
       policies ? [ ],
@@ -65,27 +38,6 @@ rec {
       # a parameter because core knows no floe set.
       catalogue ? { },
 
-      # synthetic :: { UnitName -> { hole; signature; } }
-      #
-      # Units an inclusion injected to carry its parent's values inward. Passed
-      # rather than detected from a name prefix, because a deployer is entitled
-      # to call a unit anything and a prefix would quietly swallow it. They are
-      # an implementation device, so every view below is computed as if the
-      # value had simply arrived.
-      #
-      # Each carries the hole it came from, so that a hole the inclusion
-      # declared and nothing inside reads can be named in the error rather than
-      # recovered from a unit name.
-      synthetic ? { },
-
-      # withinInclusion :: UnitName | null
-      #
-      # Set when this link is the body of an inclusion, and read on the
-      # unfilled-hole error path alone. The mistake that error is usually
-      # reporting, for an inclusion, is a hole the author forgot to declare —
-      # and the fix is a line on the inclusion rather than a unit in the link,
-      # which is worth saying since nothing else here would.
-      withinInclusion ? null,
     }:
     let
       instNames = lib.attrNames units;
@@ -232,12 +184,6 @@ rec {
                 else
                   "  Provided by: ${lib.concatStringsSep ", " candidates}. Add one to this link."
               )
-              + lib.optionalString (withinInclusion != null) (
-                "\n\nThis link is the body of inclusion '${withinInclusion}'. If "
-                + "'${sig.name}' is meant to come from outside it, declare it there — "
-                + "`requires.${sig.canonicalName} = <${sig.name}>` — and whatever links "
-                + "'${withinInclusion}' will fill it."
-              )
             )
           else if lib.length ps > 1 then
             throw (
@@ -339,36 +285,6 @@ rec {
               v
           ) value;
 
-      # ---- Inclusions -------------------------------------------------------
-
-      inclusionOf = u: (getInstance u).def.inclusion;
-      isInclusion = u: inclusionOf u != null;
-
-      # A unit name inside an inclusion, as the parent sees it. A backend wants
-      # one bucket, so an inclusion's units appear beside the parent's own
-      # rather than nested inside them.
-      qualify = u: n: "${u}/${n}";
-
-      isSynthetic = n: synthetic ? ${n};
-
-      # An outer value, offered to the units inside as an ordinary provider.
-      #
-      # That is the whole of how a parent fills an inner hole, and the reason
-      # this is not `scope` again: not a second resolution path consulted when
-      # the first one fails, but a unit in the link like any other, with a real
-      # eval edge pointing at it. Resolution gained nothing to special-case.
-      outerPrefix = "outer:";
-
-      outerUnit =
-        sig: value:
-        (floeLib.mkFloe {
-          name = "outer";
-          summary = "A value this link was given from outside it.";
-          provides.${sig.canonicalName} = sig;
-          body = _: { provides.${sig.canonicalName} = value; };
-        }).instantiate
-          { };
-
       # ---- Evaluation fixpoint ---------------------------------------------
 
       sealSig =
@@ -400,186 +316,13 @@ rec {
             ) wiringAll.${u};
           in
           rec {
-            # The link an inclusion is, or null. Every outer hole it declared
-            # becomes a unit inside providing what the parent resolved it to,
-            # so the units inside resolve against one set of providers by one
-            # rule.
-            # Every outer hole this inclusion declared, as what the inner link
-            # needs to know about it: the value, the signature the boundary
-            # allows, and the hole it came from so an error can name it.
-            injectedMeta =
-              let
-                fromSurface =
-                  surface:
-                  lib.listToAttrs (
-                    lib.concatMap (
-                      hole:
-                      lib.optional (resolved.${hole} != null) (
-                        lib.nameValuePair "${outerPrefix}${hole}" {
-                          inherit hole;
-                          sig = inst.def.${surface}.${hole};
-                          value = resolved.${hole};
-                        }
-                      )
-                    ) (lib.attrNames inst.def.${surface})
-                  );
+            evaluated = floeLib.evalFloe {
+              instance = inst;
+              instName = u;
+              resolvedRequires = resolved;
+              resolvedCollects = collected;
+            };
 
-                # One per contributor, so the collector inside sees the same
-                # fan-in the parent did rather than one merged value.
-                fromCollections = lib.listToAttrs (
-                  lib.concatLists (
-                    lib.mapAttrsToList (
-                      hole: byUnit:
-                      lib.mapAttrsToList (contributor: value: {
-                        name = "${outerPrefix}${hole}:${contributor}";
-                        value = {
-                          inherit hole value;
-                          sig = inst.def.collects.${hole};
-                        };
-                      }) byUnit
-                    ) collected
-                  )
-                );
-              in
-              if inst.def.inclusion == null then
-                { }
-              else
-                fromSurface "requires" // fromSurface "optional" // fromCollections;
-
-            # The units inside, hoisted so their *headers* are reachable:
-            # `exports` is checked against them below, and that cannot happen
-            # in the preflight because `units` is a function of this
-            # inclusion's resolved holes, so there is nothing to read until the
-            # fixpoint has resolved them.
-            innerUnits =
-              if inst.def.inclusion == null then
-                { }
-              else
-                inst.def.inclusion.units {
-                  inputs = inst.inputsChecked;
-                  requires = resolved;
-                  collects = collected;
-                  floe = {
-                    name = u;
-                    mkDeferred = floeLib.mkDeferredFor u;
-                  };
-                }
-                // lib.mapAttrs (_: i: outerUnit i.sig i.value) injectedMeta;
-
-            # The link an inclusion is, or null. Every outer hole it declared
-            # becomes a unit inside providing what the parent resolved it to,
-            # so the units inside resolve against one set of providers by one
-            # rule.
-            inner =
-              if inst.def.inclusion == null then
-                null
-              else
-                linkWith {
-                  units = innerUnits;
-                  synthetic = lib.mapAttrs (_: i: {
-                    inherit (i) hole;
-                    signature = i.sig.name;
-                  }) injectedMeta;
-                  inherit (inst.def.inclusion) defaults policies;
-                  inherit catalogue;
-                  withinInclusion = u;
-                };
-
-            # What an inclusion offers outward: one of its units' provides,
-            # named by `exports` and sealed to the signature it declared — which
-            # is how a field meaningful only inside stays inside.
-            exported = lib.mapAttrs (
-              exportName: ref:
-              let
-                parts = lib.splitString "/" ref;
-                iu = lib.head parts;
-                ps =
-                  inner.provides.${iu} or (throw (
-                    "inclusion '${u}': exports '${exportName}' from unit '${iu}', which is not "
-                    + "in it. It holds: ${lib.concatStringsSep ", " (lib.attrNames inner.provides)}."
-                  ));
-                names = lib.attrNames ps;
-              in
-              if lib.length parts > 1 then
-                ps.${lib.elemAt parts 1} or (throw (
-                  "inclusion '${u}': exports '${exportName}' from '${ref}', and '${iu}' has no "
-                  + "provide '${lib.elemAt parts 1}'. It provides: "
-                  + "${lib.concatStringsSep ", " names}."
-                ))
-              else if lib.length names == 1 then
-                lib.head (lib.attrValues ps)
-              else
-                throw (
-                  "inclusion '${u}': exports '${exportName}' from '${iu}', which provides "
-                  + "${toString (lib.length names)} things (${lib.concatStringsSep ", " names}). "
-                  + "Name which, as `<unit>/<provide>`."
-                )
-            ) (inst.def.inclusion.exports or { });
-
-            # And that each export really is a *narrowing* of what it re-exports.
-            #
-            # An export signature's whole job is to promise less than the one
-            # inside, which is what keeps a field meaningful only in here from
-            # leaving. One that promises *more* used to surface where a peer
-            # read the field that was not there — the same failure compatibility
-            # exists to prevent, reintroduced by the thing that replaced
-            # `T.local`. `interfaces.narrows` is the relation, pointed inward.
-            exportWidenings = lib.concatLists (
-              lib.mapAttrsToList (
-                exportName: ref:
-                let
-                  parts = lib.splitString "/" ref;
-                  iu = lib.head parts;
-                  provs = (innerUnits.${iu} or null).def.provides or { };
-                  provideName =
-                    if lib.length parts > 1 then
-                      lib.elemAt parts 1
-                    else if lib.length (lib.attrNames provs) == 1 then
-                      lib.head (lib.attrNames provs)
-                    else
-                      null;
-                  innerSig = if provideName == null then null else provs.${provideName} or null;
-                  declared = inst.def.provides.${exportName};
-                  # A ref naming nothing, or a unit providing several things, is
-                  # reported by `exported` with a better message than this could
-                  # manage. Nothing to say about narrowing until there is a
-                  # signature on both sides.
-                  added = if innerSig == null then [ ] else interfaces.narrows innerSig declared;
-                in
-                map (
-                  m:
-                  "inclusion '${u}': exports '${exportName}' as '${declared.name}', which promises "
-                  + "more than the '${innerSig.name}' it re-exports from '${ref}' — ${m}"
-                ) added
-              ) (inst.def.inclusion.exports or { })
-            );
-
-            evaluated =
-              if inst.def.inclusion != null then
-                {
-                  provides =
-                    if exportWidenings != [ ] then
-                      throw (
-                        "floe link error: an inclusion's export promises more than what it "
-                        + "re-exports.\n  - "
-                        + lib.concatStringsSep "\n  - " exportWidenings
-                        + "\n\nAn export signature exists to promise *less* than the one inside, "
-                        + "which is what keeps a value meaningful only in there from leaving. One "
-                        + "promising more is a field a peer can ask for and nothing can answer."
-                      )
-                    else
-                      exported;
-                  # An inclusion emits nothing of its own; its units' output
-                  # propagates to the parent. One mechanism, not two.
-                  out = { };
-                }
-              else
-                floeLib.evalFloe {
-                  instance = inst;
-                  instName = u;
-                  resolvedRequires = resolved;
-                  resolvedCollects = collected;
-                };
             sealedProvides = lib.mapAttrs (
               provideName: sig:
               let
@@ -641,83 +384,55 @@ rec {
       # the backend that core could not verify.
       deferredSites = lib.concatMap (
         u:
-        if isInclusion u then
-          # Already flattened one level down, so re-qualifying is all that is
-          # left. `token.source` needs it too, and only when the token was
-          # minted inside: `mkDeferred` binds `source` at body-eval time, when
-          # the inner link cannot know it will be included. A token that came
-          # *through* the inclusion from outside already names a unit the parent
-          # knows, and qualifying that would invent a node.
-          let
-            innerNodes = fixed.${u}.inner.graph.nodes;
-          in
-          map (
-            site:
-            site
-            // {
-              unit = qualify u site.unit;
-              token = site.token // {
-                source =
-                  if lib.elem site.token.source innerNodes then qualify u site.token.source else site.token.source;
-              };
-            }
-          ) fixed.${u}.inner.deferredSites
-        else
-          lib.concatLists (
-            lib.mapAttrsToList (
-              outName: outValue:
-              map (
-                site:
-                site
-                // {
-                  unit = u;
-                  out = (getInstance u).def.out.${outName}.name;
-                }
-              ) (scanTokens [ ] outValue)
-            ) fixed.${u}.outs
-          )
+        lib.concatLists (
+          lib.mapAttrsToList (
+            outName: outValue:
+            map (
+              site:
+              site
+              // {
+                unit = u;
+                out = (getInstance u).def.out.${outName}.name;
+              }
+            ) (scanTokens [ ] outValue)
+          ) fixed.${u}.outs
+        )
       ) instNames;
 
-      # An edge to a synthetic unit stands for a value the parent supplied, and
-      # the parent emits that edge itself against its own hole. Keeping this one
-      # too would say the same thing twice, in terms of a node nothing else
-      # mentions.
-      evalEdges = lib.filter (e: !(isSynthetic e.to)) (
-        lib.concatMap (
-          u:
-          lib.mapAttrsToList (hole: p: {
+      evalEdges = lib.concatMap (
+        u:
+        lib.mapAttrsToList (hole: p: {
+          from = u;
+          to = p.instName;
+          via = hole;
+          kind = "eval";
+        }) wiringOne.${u}
+        # A hole that resolved. An unwired optional one is not an edge, because
+        # nothing was read.
+        ++ lib.concatMap (
+          hole:
+          let
+            p = wiringOptional.${u}.${hole};
+          in
+          lib.optional (p != null) {
             from = u;
             to = p.instName;
             via = hole;
             kind = "eval";
-          }) wiringOne.${u}
-          # A hole that resolved. An unwired optional one is not an edge, because
-          # nothing was read.
-          ++ lib.concatMap (
-            hole:
-            let
-              p = wiringOptional.${u}.${hole};
-            in
-            lib.optional (p != null) {
+          }
+        ) (lib.attrNames wiringOptional.${u})
+        ++ lib.concatLists (
+          lib.mapAttrsToList (
+            hole: ps:
+            map (p: {
               from = u;
               to = p.instName;
               via = hole;
               kind = "eval";
-            }
-          ) (lib.attrNames wiringOptional.${u})
-          ++ lib.concatLists (
-            lib.mapAttrsToList (
-              hole: ps:
-              map (p: {
-                from = u;
-                to = p.instName;
-                via = hole;
-                kind = "eval";
-              }) ps
-            ) wiringAll.${u}
-          )
-        ) instNames
-      );
+            }) ps
+          ) wiringAll.${u}
+        )
+      ) instNames;
 
       # ---- Cycles ------------------------------------------------------------
       #
@@ -738,26 +453,24 @@ rec {
       #
       #   policies = [ (r: map (c: "cycle: ${lib.concatStringsSep " -> " c}") r.cycles) ];
       #
-      # Spanning the nesting, like `phases` and unlike `wiring`: a cycle inside
-      # an inclusion is a cache-unit fact the parent needs too.
       reachable =
         let
-          edges = lib.filter (e: e.kind == "eval") (evalEdges ++ innerEdges);
-          direct = lib.genAttrs nodeNames (u: lib.unique (map (e: e.to) (lib.filter (e: e.from == u) edges)));
+          edges = lib.filter (e: e.kind == "eval") evalEdges;
+          direct = lib.genAttrs instNames (u: lib.unique (map (e: e.to) (lib.filter (e: e.from == u) edges)));
           step =
             reach: lib.mapAttrs (_: rs: lib.unique (rs ++ lib.concatMap (v: reach.${v} or [ ]) rs)) reach;
         in
         # A path grows by at most one unit per round, so as many rounds as
         # there are units is the closure. Cheaper than detecting the fixed
         # point at the sizes a link has, and it terminates by construction.
-        lib.foldl' (acc: _: step acc) direct nodeNames;
+        lib.foldl' (acc: _: step acc) direct instNames;
 
       # A unit is in a cycle exactly when it can reach itself, and its cycle is
       # everything it reaches that reaches it back.
       cycles = lib.unique (
         map (
           u: lib.sort (a: b: a < b) (lib.filter (v: lib.elem u (reachable.${v} or [ ])) reachable.${u})
-        ) (lib.filter (u: lib.elem u (reachable.${u} or [ ])) nodeNames)
+        ) (lib.filter (u: lib.elem u (reachable.${u} or [ ])) instNames)
       );
 
       deployEdges = lib.unique (
@@ -789,91 +502,19 @@ rec {
       # ---- Output collection -----------------------------------------------
       #
       # Grouped by the emitted signature's `name`, which is what lets a consumer
-      # fold every floe's fragment without knowing which floes exist — and, with
-      # an inclusion in the link, without knowing how deep any of them sit.
-      # A synthetic unit declares no `out`, so it contributes nothing here and
-      # needs no filtering — the same is true of `deferredSites`.
+      # fold every floe's fragment without knowing which floes exist.
       outEntries = lib.concatMap (
         u:
-        if isInclusion u then
-          lib.concatLists (
-            lib.mapAttrsToList (
-              sigName: byUnit:
-              lib.mapAttrsToList (leaf: value: {
-                inherit sigName value;
-                unit = qualify u leaf;
-              }) byUnit
-            ) fixed.${u}.inner.out
-          )
-        else
-          lib.mapAttrsToList (outName: sig: {
-            sigName = sig.name;
-            unit = u;
-            value = fixed.${u}.outs.${outName};
-          }) (getInstance u).def.out
+        lib.mapAttrsToList (outName: sig: {
+          sigName = sig.name;
+          unit = u;
+          value = fixed.${u}.outs.${outName};
+        }) (getInstance u).def.out
       ) instNames;
 
       outBySigName = lib.mapAttrs (
         _: es: lib.listToAttrs (map (e: lib.nameValuePair e.unit e.value) es)
       ) (lib.groupBy (e: e.sigName) outEntries);
-
-      # Every unit that emits, at any depth: what `phases` is keyed by, because
-      # an inclusion is not a thing that applies — its units are.
-      #
-      # Recursing through each inner link's *leaves* and not its nodes, which is
-      # the whole of the difference once there are two levels: an inner link's
-      # nodes include its own inclusions, and those are not leaves either. At
-      # one level the two sets coincide, which is why this took a nested test.
-      leafNames = lib.concatMap (
-        u:
-        if isSynthetic u then
-          [ ]
-        else if isInclusion u then
-          map (qualify u) fixed.${u}.inner.leaves
-        else
-          [ u ]
-      ) instNames;
-
-      # Every unit at every level, inclusions included — an inclusion is a node
-      # because the edge into it is a real fact about its own hole, and an inner
-      # edge may name one, so leaving it out would dangle.
-      nodeNames = lib.concatMap (
-        u:
-        if isSynthetic u then
-          [ ]
-        else if isInclusion u then
-          [ u ] ++ map (qualify u) fixed.${u}.inner.graph.nodes
-        else
-          [ u ]
-      ) instNames;
-
-      # The eval edges from inside an inclusion, and only those. A deploy edge is
-      # derived from a token in output, `deferredSites` is already flattened to
-      # every depth, and `deployEdges` below derives from that — so taking the
-      # inner ones too would duplicate every one of them.
-      #
-      # It would also get them wrong: a token that reached an inner unit from
-      # outside makes an inner deploy edge pointing at a unit the inner link
-      # does not contain, so qualifying both ends would invent a node. Hence
-      # qualifying only what the inner link actually holds, here as well.
-      innerEdges = lib.concatMap (
-        u:
-        if isInclusion u then
-          let
-            innerNodes = fixed.${u}.inner.graph.nodes;
-            rename = n: if lib.elem n innerNodes then qualify u n else n;
-          in
-          map (
-            e:
-            e
-            // {
-              from = rename e.from;
-              to = rename e.to;
-            }
-          ) (lib.filter (e: e.kind == "eval") fixed.${u}.inner.graph.edges)
-        else
-          [ ]
-      ) instNames;
 
       # ---- Result and policies ---------------------------------------------
 
@@ -890,26 +531,15 @@ rec {
 
         inputs = lib.genAttrs instNames (u: interfaces.renderInputs (getInstance u).def.inputs);
 
-        # An inclusion is a node and so are its units: the edge into one is a
-        # real fact about the inclusion's own hole, and the edges between its
-        # units are real facts about them. So the graph is hierarchical where
-        # the link is, and flat everywhere else.
-        # Every unit that emits, at any depth, which is what a parent recurses
-        # through when this link is the body of one of its inclusions.
-        leaves = leafNames;
-
         graph = {
-          nodes = lib.unique nodeNames;
-          edges = evalEdges ++ innerEdges ++ deployEdges;
+          nodes = instNames;
+          edges = evalEdges ++ deployEdges;
         };
 
-        # Keyed by what emits, which after an inclusion is its units rather than
-        # it. Deploy edges are derived from tokens in output, and output comes
-        # from leaves, so this needs no special case beyond the flattening.
-        phases = lib.genAttrs leafNames (phaseOf [ ]);
+        phases = lib.genAttrs instNames (phaseOf [ ]);
 
-        # Every group of units whose holes resolve to each other, at any depth.
-        # A unit absent from all of them is its own cache unit. ADR 0008.
+        # Every group of units whose holes resolve to each other. A unit absent
+        # from all of them is its own cache unit. ADR 0008.
         inherit cycles;
 
         inherit deferredSites;
@@ -940,9 +570,6 @@ rec {
           wiringOne
           wiringOptional
           wiringAll
-          synthetic
-          isSynthetic
-          withinInclusion
           ;
       };
 

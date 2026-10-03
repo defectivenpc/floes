@@ -27,7 +27,6 @@ in
     ;
   inherit (floe)
     mkFloe
-    mkInclusion
     isInstance
     instanceType
     ;

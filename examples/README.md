@@ -6,9 +6,7 @@
   one to measure.
   [ADR 0001](../docs/adr/0001-the-nixos-examples-give-namespaces-an-owner.md).
 - **[`k8s/`](k8s)** — the contrast, in one file. Coarse units, a resolution
-  chain, loose output. The shape floe was originally designed against. Also
-  the **lab**: two clusters as units of one link, each a link of its own.
-  [ADR 0006](../docs/adr/0006-a-link-can-be-a-unit.md).
+  chain, loose output. The shape floe was originally designed against.
 - **[`wrapped/`](wrapped)** — a spike that answers "could floes just wrap
   nixpkgs modules?". They can, at about 200× the cost.
   [ADR 0002](../docs/adr/0002-wrapping-nixpkgs-modules-is-not-the-path.md).
@@ -239,44 +237,6 @@ In stock NixOS that is nixpkgs' work and the deployer pays none of it. Floe
 moves cost from deployer to author, which trades well only where components
 are written once and deployed many times.
 
-## What the lab establishes
-
-`k8s/` holds a second link: a lab whose units are two clusters, each a link
-of its own. It is the worked multi-link case
-[ADR 0003](../docs/adr/0003-trim-unexercised-surface.md) set as the
-condition for `scope` coming back, and it came back as something else.
-
-**Nothing new is linking.** An inclusion is a floe whose body is a link, so
-the lab resolves it with the rules it already had — `.bind`, `defaults`, the
-three arities, sealing. A parent's value reaches the units inside by
-becoming a _unit_ inside that provides it, which is why resolution gained no
-second path. `scope` was that second path, consulted when the first failed.
-
-**A cluster leaves a hole open and the lab fills it.** Nothing inside either
-cluster answers `ISSUER`; the lab's trust root does. That is what makes one
-cluster definition instantiable twice with different inputs, and what a
-closed inclusion could not express — a lab could only read from its
-clusters, never supply them.
-
-**An export is where `T.local` went.** `CLUSTER` carries `apiServer`, an
-address meaningful only inside the cluster it describes. The export
-signature `CLUSTER_SUMMARY` does not carry it, so the lab reads `version`
-and cannot reach the address. The boundary declares what crosses and sealing
-drops the rest — instead of every field carrying a locality marking for a
-boundary most of them never meet.
-
-**Output is one flat bucket, and ordering spans the nesting.** The lab's
-manifests are keyed `app/podinfo`, `ca`, `report`, `web/podinfo`: a backend
-reads one bucket and does not care how deep anything sat. The CA's
-fingerprint is deferred, reaches output inside _both_ clusters, and puts
-both workloads in phase 1 behind it. `phases` is keyed by what emits, so an
-inclusion has none — it is not a thing that applies.
-
-The trap worth recording, because it was a real bug caught by the test: a
-token minted at the lab and written inside a cluster must **not** have its
-source qualified. Doing so invents `app/ca`, which is nothing. Only a token
-minted inside needs it.
-
 ## What it does not establish
 
 **The recursion problem is now solved in the one place it was solvable.**
@@ -337,9 +297,7 @@ rather than values.
 | nesting       | one link              | a lab, two clusters |
 
 Kubernetes components have coarse grain and clean boundaries, so nothing
-_inside a cluster_ needs a collection and nothing points backwards. The one
-collection is at the lab, and it is a different kind of fan-in: one
-contribution per cluster rather than per service. A rendered manifest is
+here needs a collection and nothing points backwards. A rendered manifest is
 opaque by nature, so there is no useful `T.record` to write for it — and
 floe does not insist on one. Both use `mkSig`, `requires`, `collects` and
 `out` unmodified. `networking` and `nginx` stay on `modules` so that path

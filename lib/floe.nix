@@ -74,9 +74,7 @@ rec {
           );
       };
 
-  # The constructor, including the argument an author may not set. `mkFloe`
-  # below is what an author calls.
-  mkFloeWith =
+  mkFloe =
     {
       name,
 
@@ -119,13 +117,6 @@ rec {
       modules ? [ ],
       body ? null,
 
-      # inclusion :: { units; exports; defaults; policies; } | null
-      #
-      # Set by `mkInclusion` and by nothing else. A floe carrying it has a link
-      # for a body, and `lib/link.nix` routes it rather than calling `evalFloe`.
-      # Internal: an author writes `mkInclusion`.
-      inclusion ? null,
-
       # singleton :: bool
       #
       # Whether two instances of this floe in one link is an error.
@@ -158,11 +149,6 @@ rec {
             "floe '${name}': has both `body` and `modules`. They are two spellings of "
             + "one thing — `body` is a plain function, `modules` is the NixOS module "
             + "system with its merge. Pick the one the floe needs."
-          )
-        else if inclusion != null && (body != null || modules != [ ]) then
-          throw (
-            "floe '${name}': is an inclusion and also has a `body` or `modules`. An "
-            + "inclusion's body *is* its link; there is no second one."
           )
         else if body != null && !lib.isFunction body then
           throw "floe '${name}': `body` must be a function of { inputs, requires, collects, floe }."
@@ -267,7 +253,6 @@ rec {
               out
               modules
               body
-              inclusion
               singleton
               ;
 
@@ -295,120 +280,6 @@ rec {
       );
     in
     def;
-
-  # mkFloe: the author-facing constructor.
-  #
-  # A gate rather than a second parameter list, because duplicating eleven
-  # argument names is two places to forget a surface. `inclusion` is refused
-  # here by name — it used to be a public argument documented as internal,
-  # which made `mkFloe`'s "the pattern is closed, an unknown key is an error"
-  # promise untrue of the one key where it mattered: a floe carrying a forged
-  # `inclusion` is routed as one, with none of `mkInclusion`'s checks run.
-  mkFloe =
-    args:
-    if args ? inclusion then
-      throw (
-        "floe '${args.name or "?"}': `inclusion` is not an argument to `mkFloe`. A floe "
-        + "whose body is a link is built by `mkInclusion`, which checks that every "
-        + "`provides` says where it comes from."
-      )
-    else
-      mkFloeWith args;
-
-  # mkInclusion: a floe whose body is a link, so a lab holding clusters is the
-  # same mechanism as a cluster holding floes rather than a second one beside it.
-  # Backpack's `include`, and what replaces the `scope` that ADR 0003 deleted —
-  # the requirement was real, the mechanism was a side-channel with its own
-  # resolution path. ADR 0006.
-  #
-  #   mkInclusion {
-  #     name = "cluster"; summary = "…";
-  #     requires.issuance = X509_ISSUANCE;        # left open, filled by the parent
-  #     provides.trust = CROSS_TRUST;             # what crosses outward
-  #     exports.trust = "trust-manager/trust";    # and where it comes from
-  #     units = { inputs, requires, ... }: { … }; # the link
-  #   }
-  #
-  # Everything an ordinary floe has, it has: `inputs`, `.instantiate`, `.bind`,
-  # the three hole arities, `provides`. What it does not have is `out` — an
-  # inclusion emits nothing of its own, and its units' output propagates to the
-  # parent with their names qualified. One mechanism rather than two.
-  mkInclusion =
-    {
-      name,
-      summary ? null,
-      inputs ? { },
-
-      # Holes the units inside leave open, for the parent to fill. Ordinary
-      # surfaces with ordinary arities; what makes them an inclusion's is only
-      # that the value arrives from outside and is offered to the units inside.
-      requires ? { },
-      optional ? { },
-      collects ? { },
-
-      # What crosses outward. `provides` is a signature exactly as any floe
-      # declares one, and is usually *narrower* than the one inside: that is how
-      # a value meaningful only in here stays in here, since the export is
-      # itself a sealing step. It is why `T.local` is unnecessary rather than
-      # merely absent — the boundary declares what crosses.
-      provides ? { },
-
-      # Which inner provide each export comes from, spelled the way `.bind`
-      # spells a provider: `<unit>` or `<unit>/<provide>`. `.bind` names one
-      # outside, this names one inside.
-      exports ? { },
-
-      # The link. A function of this inclusion's own surfaces, because the units
-      # inside are built from what the parent supplied.
-      units,
-
-      defaults ? { },
-      policies ? [ ],
-    }:
-    let
-      unexported = lib.subtractLists (lib.attrNames exports) (lib.attrNames provides);
-      unprovided = lib.subtractLists (lib.attrNames provides) (lib.attrNames exports);
-
-      _exports =
-        if unexported != [ ] then
-          throw (
-            "inclusion '${name}': provides ${lib.concatMapStringsSep ", " (p: "'${p}'") unexported} "
-            + "and does not say where from. Add `exports.<name> = \"<unit>\"` for each — an "
-            + "inclusion does not compute a provide, it re-exports one of its units'."
-          )
-        else if unprovided != [ ] then
-          throw (
-            "inclusion '${name}': exports ${lib.concatMapStringsSep ", " (p: "'${p}'") unprovided} "
-            + "without declaring it in `provides`. The signature is what a peer reads it "
-            + "through, and it is usually narrower than the one inside."
-          )
-        else if !lib.isFunction units then
-          throw (
-            "inclusion '${name}': `units` must be a function of "
-            + "{ inputs, requires, collects, floe }, returning the units to link."
-          )
-        else
-          null;
-    in
-    builtins.seq _exports (mkFloeWith {
-      inherit
-        name
-        summary
-        inputs
-        requires
-        optional
-        collects
-        provides
-        ;
-      inclusion = {
-        inherit
-          units
-          exports
-          defaults
-          policies
-          ;
-      };
-    });
 
   # evalFloe: evaluate one floe's body with its resolved holes injected, and
   # return `{ provides, out }` whichever form the body took. The linker only ever

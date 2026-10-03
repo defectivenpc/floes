@@ -1,5 +1,32 @@
 # A link can be a unit, which is what `scope` should have been
 
+> **Status: withdrawn.** This was built, shipped, exercised by a worked
+> example, and then removed. Two reasons, and the first is the one that
+> decided it: **an inclusion is a floe without a body, which makes "floe"
+> two kinds of thing.** Every other surface a floe has is a declaration
+> about one implementation; this one replaced the implementation with a
+> link, and `mkFloe` grew an argument an author must not set so that
+> `mkInclusion` could set it. That is a seam through the middle of the
+> central concept, paid for by every reader of `mkFloe`.
+>
+> The second: nothing adopted it. Catallaxy — the reason it was built, and
+> the repository whose `scope` call site it was meant to replace — ported
+> without it, because a lab does not have to be a link over its clusters.
+> Its only user was `examples/k8s`.
+>
+> **The requirement is still real** and the mechanism that answers it is in
+> here, in "Inner holes stay open": a value from outside becomes an ordinary
+> _unit_ of the consuming link, providing it under the signature the
+> boundary allows. That needs no library feature at all, and it is what
+> catallaxy does in twenty lines of its own module layer. What was wrong was
+> wrapping it in a second kind of floe.
+>
+> The rest of this document is kept because its analysis outlived its
+> decision: why `scope` was wrong, why `T.local` is per field and what
+> replaces it, and where the design diverged from the theory it borrows
+> from. A different abstraction for nesting may come later; it should start
+> here.
+
 `docs/adr/0003` deleted `link`'s `scope`, `T.local` and `isUncrossable` on
 the grounds that nothing in `examples/` used them. That was true, and it was
 the wrong check. Catallaxy's own link call site passes `scope`

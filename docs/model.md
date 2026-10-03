@@ -130,32 +130,23 @@ interface — if a consumer could read past it, the signature would not be
 one. And a floe is the unit, which is why `lab.clusters.<c>.floes.<name>` is
 an instantiation and not a definition.
 
-The last piece of Backpack to arrive is **inclusion**: a unit that includes
-other units and re-exports what they provide. `floe.mkInclusion` is a floe
-whose body is a link, which makes a lab holding clusters the same mechanism
-as a cluster holding floes. Every lab had grown a private stand-in for it —
-a closure returning an attrset of floes — which is what
+One piece of Backpack has no counterpart here: **inclusion**, a unit that
+includes other units and re-exports what they provide. A `floe.mkInclusion`
+was built for it and removed — a floe whose body is a link makes "floe" two
+kinds of thing, and nothing adopted it. Every lab has a private stand-in
+instead, which is what
 [presets](https://github.com/defectivenpc/catallaxy/blob/main/docs/book/src/using/presets.md)
-are, with the declaration now checked rather than assumed.
+are.
 
 That is also where the earlier `scope` went. Backpack links a whole program
 at once, and a floe link is one fixpoint over one set of units; rather than
-a wider scope a link falls back to, nesting is declared and an inner link is
-a unit of the outer one. `scope` and the `T.local` locality marking that
-served it are gone — a value meaningful only in one link stays there because
-the boundary re-exports a narrower signature, and sealing does the rest.
-`docs/adr/0003` says why they went, `docs/adr/0006` says what replaced them,
-and `docs/migrating.md` says how to move a call site.
-
-Two things Backpack has no counterpart for, and floe now does. `T.deferred`
-marks a value that does not exist until after apply, from which the linker
-derives a deploy edge. `T.derivedFrom` marks a field its provider folded out
-of a collection, which the linker withholds from the peers that feed that
-fold — mixin linking has nothing to say about a unit reading back its own
-contribution, because Backpack units do not aggregate.
-
-The one word that was doing its job backwards was `unit` — see the
-glossary's table of retired terms.
+a wider scope a link falls back to, a value from outside is added to the
+link as an ordinary unit providing it. `scope` and the `T.local` locality
+marking that served it are gone — what crosses a boundary is a table the
+distribution writes down and checks with `floe.narrows`, rather than a
+marking on every field. `docs/adr/0003` says why they went, `docs/adr/0006`
+keeps the analysis of the abstraction that tried to replace them, and
+`docs/migrating.md` says how to move a call site.
 
 ## Next
 

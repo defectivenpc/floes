@@ -70,10 +70,10 @@ distribution
 >
 > - **A provider must answer the requirer's signature** (ADR 0007), which is
 >   §7.4's versioning question answered without a version field.
-> - **A link can be a unit** (ADR 0006): `mkInclusion`, a floe whose body is
->   a link. This RFC has no nesting at all — §4.6 is one fixpoint over one
->   set of units — and an earlier `scope` that tried to add it was deleted
->   (ADR 0003) before being replaced properly.
+> - **Nesting is still absent.** §4.6 is one fixpoint over one set of units,
+>   and it still is. A `scope` was deleted (ADR 0003), a `mkInclusion` was
+>   built and withdrawn (ADR 0006), and what a distribution does instead is
+>   add the outside value to the link as an ordinary unit.
 > - **A third arity**, `optional` (ADR 0009), resolving only when named.
 > - **`T.package`**, and the rule that a package set is an input and never a
 >   signature, which is what keeps per-floe eval cacheable (ADR 0008).

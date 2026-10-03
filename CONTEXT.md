@@ -147,26 +147,6 @@ a floe does not know its peers' names.
 consumer, so adding a second provider of something does not break every
 consumer that has no opinion about which one it wants.
 
-**Inclusion**: A floe whose body is a link, so a lab holding clusters is the
-same mechanism as a cluster holding floes rather than a second one beside
-it. It exports a declared subset of what its units provide, and may leave an
-inner hole unfilled for the parent to fill — which is what makes one cluster
-reusable across labs. Backpack's `include`. _Avoid_: scope, nesting,
-sub-link.
-
-**Narrowing**: A signature promising no more than another — every field it
-declares present and agreeing in the one it narrows. What an export
-signature is to the provide it re-exports, and what a distribution's table
-of "this may cross a boundary" holds. The same relation [[compatibility]]
-decides between a requirer and a provider, pointed inward. _Avoid_: subset,
-restriction.
-
-**Export signature**: The signature an inclusion re-exports a provide under,
-usually narrower than the one inside. How a value that means something only
-in the link that produced it stays there: the boundary declares what crosses
-and sealing drops the rest, rather than a field carrying a locality marking.
-_Avoid_: local, uncrossable.
-
 **Cycle**: A group of units whose holes resolve to each other. Derived, not
 declared — the holes and provides are in the headers, so the linker knows
 every cycle before a body evaluates. A cycle stays legal, because laziness

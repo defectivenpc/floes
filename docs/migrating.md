@@ -64,39 +64,39 @@ painful one, and it is catallaxy's lab→cluster nesting. Nothing in
 fields meaning nothing in another link — which made `T` carry a concept the
 NixOS examples never needed.
 
-The requirement was real even so, and what replaces it is `mkInclusion`: a
-floe whose body is a link, which leaves holes open for the parent to fill
-and re-exports a provide under a narrower **export signature**. See
-[ADR 0006](adr/0006-a-link-can-be-a-unit.md) and the `mkInclusion` section
-of [the API](floe-api.md); `examples/k8s` is the worked case, a lab holding
-two clusters.
-
-Porting a `scope` call site means turning the nesting inside out. Before,
-the inner link received an attrset of outer values and resolved against it
-as a fallback:
+The requirement was real even so, and what replaces it needs no library
+feature: **a value from outside becomes an ordinary unit of the consuming
+link.** Build a floe whose whole body is that value, under the signature the
+boundary allows, and add it to the units:
 
 ```nix
-link { units = config.floes; inherit scope catalogue; }
+fromOutside = sig: value: (floe.mkFloe {
+  name = "from-outside";
+  summary = "A value this link was given from outside it.";
+  provides.${sig.canonicalName} = sig;
+  body = _: { provides.${sig.canonicalName} = value; };
+}).instantiate { };
+
+link { units = config.floes // { "from-outside/zone" = fromOutside DNS_ZONE labZone; }; }
 ```
 
-Now the nesting is declared, and the inner link is a unit of the outer one:
+One resolution rule, one kind of provider, and a real eval edge pointing at
+it. That is the whole of what `scope` was for, minus the second resolution
+path that consulted it only after local providers failed.
 
-```nix
-mkInclusion {
-  requires.secretStore = sigs.SECRET_STORE;   # what `scope` used to carry in
-  units = { requires, ... }: config.floes;
-  …
-}
-```
+Two consequences worth planning for. **Nearer-wins is gone**: offer the
+outside value only to links that have no provider of their own, because two
+providers of one signature is the ambiguity error it already was everywhere
+else. And **what may cross is now a decision you write down** — keep a table
+mapping a signature to the narrower form another link may read, and check it
+with `floe.narrows`. `T.local` was that decision inferred from a per-field
+marking; a table is the same decision said once, at the boundary that has
+it.
 
-The win beyond tidiness is that the wiring is checked: `scope` could carry a
-value nothing inside asked for, and a hole could go unfilled with the
-diagnosis depending on which path ran. An open hole is resolved by the same
-rule as every other, and an unfilled one is the same error.
-
-`T.local` has no replacement and needs none. Drop it from every signature,
-and where a field genuinely must not cross a link boundary, give that
-boundary a narrower export signature instead.
+An earlier answer to this was `mkInclusion`, a floe whose body is a link. It
+was built, exercised and removed: a floe without a body makes "floe" two
+kinds of thing, and the mechanism above is what it was wrapping.
+[ADR 0006](adr/0006-a-link-can-be-a-unit.md) keeps the analysis.
 
 ## Added
 
