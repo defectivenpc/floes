@@ -55,6 +55,27 @@ The format is based on
   no version field.
   [ADR 0007](docs/adr/0007-a-provider-must-answer-the-requirers-signature.md)
 
+- **`link.cycles`**, the strongly-connected components of the eval graph.
+  Derivable from headers, which is why RFC 0001's open question 3 is
+  answered "derived" rather than "declared", and what a distribution needs
+  in order to refuse cycles as a policy — which core deliberately does not.
+
+  Building it measured the caching argument it exists for, and the number is
+  not what that argument assumed: the twenty-nine-unit fleet is **one
+  component of twenty-six**, so the cache-unit partition is four. A
+  namespace with an owner is a cycle through nearly everything. ADR 0008,
+  `examples/README.md` and RFC §7.3 carry the measurement; an eval edge is
+  per hole where the dependency is per field, and that is where a real
+  answer would start.
+
+- **`narrows`**, and `link` checking that an inclusion's `exports` do. A
+  narrowing promises no more than what it narrows, which is the whole job of
+  an export signature and of a distribution's "this may cross a boundary"
+  table — and neither was checking it. The same relation compatibility
+  decides between a requirer and a provider, pointed inward. An export that
+  accidentally _widened_ used to surface where a peer read the field that
+  was not there.
+
 - **`T.package`**, a derivation or the store path it coerces to: the one way
   something built crosses a floe boundary. A package **set** is not a
   signature — a floe takes the packages it needs as ordinary inputs, one at
