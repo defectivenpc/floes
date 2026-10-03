@@ -1,10 +1,10 @@
 # floe
 
 **Typed interfaces and mixin linking for Nix modules.** A floe is a unit
-with declared surfaces — inputs, requires, provides, out — and a body of
-ordinary NixOS modules. What a floe needs, it names by _signature_; the
-linker finds whatever provides it, checks the value against that signature,
-and hides everything else.
+with declared surfaces — inputs, requires, optional, collects, provides, out
+— and a body of ordinary NixOS modules. What a floe needs, it names by
+_signature_; the linker finds whatever provides it, checks the value against
+that signature, and hides everything else.
 
 The model is Haskell's Backpack — signatures, holes, mixin linking,
 instantiation — applied to the NixOS module system, with sealing from ML.
@@ -50,12 +50,13 @@ does not exist until after apply.
 
 ## The surfaces
 
-| Declaration | Arity                                         |
-| ----------- | --------------------------------------------- |
-| `requires`  | exactly one provider; zero or two is an error |
-| `collects`  | every provider, keyed by unit; may be empty   |
-| `provides`  | what it answers, sealed to the signature      |
-| `out`       | what it emits, collected by signature name    |
+| Declaration | Arity                                          |
+| ----------- | ---------------------------------------------- |
+| `requires`  | exactly one provider; zero or two is an error  |
+| `optional`  | zero or one; `null` unless a deployer names it |
+| `collects`  | every provider, keyed by unit; may be empty    |
+| `provides`  | what it answers, sealed to the signature       |
+| `out`       | what it emits, collected by signature name     |
 
 Arity is a property of the hole, not of the signature: a second provider
 makes every `requires` of it ambiguous. The deployer says which a given
@@ -66,6 +67,10 @@ consumer means, per consumer or once for the link:
 
 floe.link { units = { … }; defaults.X509_ISSUANCE = "internal-ca"; }
 ```
+
+`optional` is the one with a surprising rule: a provider merely being
+present wires nothing, so adding a floe to a link can never silently change
+another floe's output.
 
 [The mkFloe API](docs/floe-api.md) is the reference.
 
@@ -102,9 +107,11 @@ nix fmt
 ## Prior art
 
 Extracted from [catallaxy](https://github.com/defectivenpc/catallaxy), where
-it was `lib/floe-core` and remains the layer the platform is built on. That
-repository's history has the rest, including two earlier implementations
-that preceded this one.
+it was `lib/floe-core`. That directory is gone: catallaxy takes this
+repository as a flake input and is the layer its platform is built on —
+forty floes and five labs, which is what exercises this library in anger.
+That repository's history has everything before the extraction, including
+two earlier implementations that preceded this design.
 
 ## License
 

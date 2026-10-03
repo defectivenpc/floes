@@ -1,5 +1,20 @@
 # Unexercised machinery that shapes vocabulary comes out
 
+> **Superseded in part.** Two of the four deletions did not hold, and a
+> reader finding this first should know which.
+>
+> `requiresOptional` is back as **`optional`**, because the 26 call sites it
+> had were in the consumer rather than in this repository
+> ([ADR 0009](0009-an-optional-hole-resolves-only-when-named.md)). `scope`
+> stayed deleted, but the requirement behind it was real; the replacement
+> attempted for it was built and withdrawn
+> ([ADR 0006](0006-a-link-can-be-a-unit.md)), and what a distribution does
+> instead is add the outside value to the link as an ordinary unit.
+>
+> The rule this records is still the rule. What was wrong was the evidence:
+> "no caller in this repository" is not "no caller", and the library's
+> consumer lives in another one.
+
 A review pass over the library found four type-ish words for three concepts,
 and three surfaces with no caller anywhere. We deleted `link`'s `scope`,
 `T.local`, `isUncrossable`, `requiresOptional` and `mkOutputKind`, and

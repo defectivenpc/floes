@@ -1077,9 +1077,8 @@ in
 
   # ---- Narrowing -----------------------------------------------------------
   #
-  # The relation an inclusion's `exports` rests on, and that a distribution
-  # carrying a "what crosses a boundary" table rests on one layer up. Neither
-  # was checking it.
+  # The relation a distribution's table of what may cross a link boundary
+  # rests on, which nothing was checking.
 
   testANarrowerSignatureNarrows = {
     expr = floe.narrows WIDE NARROW;

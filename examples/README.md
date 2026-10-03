@@ -276,12 +276,25 @@ as powerful as `mkForce` on a shared tree.
 module system's ad hoc merges are exactly as they were. Floe encapsulates
 that problem; it does not solve it.
 
-**Incrementality is not built.** A floe's output depends only on its
-declared inputs and requires, which makes it a natural memoization unit —
-floe's strongest answer to the complaint people actually have about NixOS
-eval time. Nothing here does it, and the single `lib.fix` in `lib/link.nix`
-stands in the way, because a floe's inputs are thunks in a global knot
-rather than values.
+**Incrementality is not built, and `link.cycles` now says it would not help
+much.** A floe's output depends only on its declared inputs and requires,
+which makes it a natural memoization unit — in isolation. In a link it is
+the _component_ that is the cache unit, and the components here are
+enormous: the small link is one component of five, and the fleet is one of
+twenty-six out of twenty-nine, so the cache-unit partition is four.
+
+That is this design's own doing rather than an accident. A namespace with an
+owner means one floe collecting from every peer and those peers reaching it
+back through the proxy, which is a cycle through nearly everything. The
+single `lib.fix` in `lib/link.nix` is still in the way too, but it is no
+longer the first problem.
+
+What would dissolve it is in the same place: an eval edge is per _hole_, and
+the dependency is per _field_. `nginx` reads `NETWORK.domain`, which does
+not depend on the port collection — `openPorts` is the field that does, and
+`T.derivedFrom` already marks exactly that. The graph is coarser than the
+truth. `testTheFleetIsOneComponentOfTwentySix` pins the numbers so this
+stays a measurement rather than a worry.
 
 ## The contrast with `k8s/`
 

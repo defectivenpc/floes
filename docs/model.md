@@ -1,118 +1,10 @@
 # The Model
 
-Catallaxy nests four things, each inside the one before it.
-
-```
-Lab            everything: clusters, host services, secrets, the plan
- └─ Cluster        one Kubernetes cluster
-     └─ Floe           one capability
-         └─ Bundle        a group of resources that install together
-```
-
-Every option path and every error message sits somewhere in that stack.
-
-## Lab
-
-One lab is one `mkLab` evaluation, configured under `lab.*`. It holds the
-clusters, the host-side services they depend on (DNS resolver, registry, TLS
-proxy), the encrypted secrets, and the ordered plan that builds it all.
-
-```nix
-lab.name = "minimal.local";
-lab.dns.zone = "minimal.test";
-lab.clusters.app.floes = { /* … */ };
-```
-
-## Cluster
-
-One Kubernetes cluster, at `lab.clusters.<name>`. What a cluster mostly is,
-is an attrset of instantiated floes:
-
-```nix
-lab.clusters.app.floes = {
-  cluster      = floes.k3d-cluster  { name = "app"; instanceName = "minimal-app"; };
-  cert-manager = floes.cert-manager { chart = "${cataCharts.cert-manager.chart}"; };
-  gateway      = floes.gateway      { chart = "${cataCharts.traefik.chart}"; };
-  podinfo      = floes.podinfo      { };
-};
-```
-
-Three things about that block are decisions rather than accidents.
-
-**A floe is instantiated, not enabled.** `floes.podinfo { }` is a function
-call and its result is an opaque value. There is no `enable`: a floe absent
-from the attrset is simply not there. If something needed what it provided,
-that is an error naming both — and it should be, because omitting a
-certificate issuer really does break everything needing certificates.
-
-**Nothing declares an ordering.** Nothing may. The order comes from the
-signatures;
-[How It Works](https://github.com/defectivenpc/catallaxy/blob/main/docs/book/src/understanding/how-it-works.md)
-explains how.
-
-**A cluster is not a module.** There is no cluster-scoped `config` to read
-and no `lab` argument to reach around it. Values another cluster or the lab
-holds arrive the way everything else does: a signature the floe requires,
-resolved against a scope. See
-[Configure a Lab](https://github.com/defectivenpc/catallaxy/blob/main/docs/book/src/using/configuring.md).
-
-## Floe
-
-The unit of capability: a certificate manager, a gateway, your own
-application. A floe is a **type signature with an implementation behind
-it**, and the signature is the part you should be able to read on its own:
-
-```nix
-catallaxy.mkComponentFloe {
-  name = "podinfo";
-  summary = "podinfo, a small routed workload for proving a cluster serves traffic.";
-
-  inputs = { /* what the deployer decides */ };
-
-  requires.gateway = sigs.API_GATEWAY;   # what it needs, named by capability
-
-  modules = [ /* the body */ ];
-}
-```
-
-`requires` and `provides` name **signatures**, not floes. `podinfo` requires
-`API_GATEWAY`; it does not require `traefik`, and it never spells the
-gateway's name, its namespace, its listener, or the lab's DNS zone. Whatever
-provides `API_GATEWAY` in that cluster is what it gets, and swapping the
-implementation changes nothing on this page.
-
-Resolution is **exactly one provider per signature per cluster**. Zero is an
-error naming what went unsatisfied; two is an error naming both. That rule
-is the whole of the wiring, and it is why the cluster block above needs no
-`after`, no priority, and no list of dependencies.
-
-What a floe requires and provides is generated into its own reference page —
-the declaration read off the definition, and what it emits read off an
-actual link. Those pages are diff-checked, so a floe whose interface moves
-and whose page does not is a failing build.
-
-Floes catallaxy ships and floes you write are the same kind of thing. See
-[Write a Floe](https://github.com/defectivenpc/catallaxy/blob/main/docs/book/src/using/writing-a-floe.md).
-
-## Bundle
-
-A group of Kubernetes resources installed as a unit, written to
-`bundles.<name>` inside a floe's component. Bundles are the nodes of the
-install graph, which is why a floe usually emits several: a certificate
-manager's CRDs, its operator and its issuers cannot install at the same
-moment.
-
-A bundle orders itself against its **siblings in the same floe**, with
-`needs`. It cannot name another floe's bundle, and that restriction is the
-design: ordering between floes comes from the link graph, where it is
-checked, rather than from a string that happens to match.
-
-## Where the words come from
-
 The vocabulary is borrowed, not invented, and knowing the source explains
-most of it at once. Catallaxy's floe system is Haskell's
+most of it at once. Floe is Haskell's
 [Backpack](https://plv.mpi-sws.org/backpack/) — a mixin module system —
-applied to NixOS modules rather than to Haskell modules.
+applied to NixOS modules rather than to Haskell modules, with sealing from
+ML.
 
 | Here                        | There                                                                   |
 | --------------------------- | ----------------------------------------------------------------------- |
@@ -124,34 +16,78 @@ applied to NixOS modules rather than to Haskell modules.
 | **Sealing**                 | ML's opaque sealing (`:>`): a structure seen only through its signature |
 
 That correspondence is why the rules are what they are. A hole must be
-filled by exactly one provider because mixin linking resolves by name, not
-by search. A provided value is sealed because a signature is the _whole_
+filled by exactly one provider because mixin linking resolves **by name, not
+by search**. A provided value is sealed because a signature is the _whole_
 interface — if a consumer could read past it, the signature would not be
-one. And a floe is the unit, which is why `lab.clusters.<c>.floes.<name>` is
-an instantiation and not a definition.
+one.
 
-One piece of Backpack has no counterpart here: **inclusion**, a unit that
-includes other units and re-exports what they provide. A `floe.mkInclusion`
-was built for it and removed — a floe whose body is a link makes "floe" two
-kinds of thing, and nothing adopted it. Every lab has a private stand-in
-instead, which is what
-[presets](https://github.com/defectivenpc/catallaxy/blob/main/docs/book/src/using/presets.md)
-are.
+## The one word that diverges
 
-That is also where the earlier `scope` went. Backpack links a whole program
-at once, and a floe link is one fixpoint over one set of units; rather than
-a wider scope a link falls back to, a value from outside is added to the
-link as an ordinary unit providing it. `scope` and the `T.local` locality
-marking that served it are gone — what crosses a boundary is a table the
-distribution writes down and checks with `floe.narrows`, rather than a
-marking on every field. `docs/adr/0003` says why they went, `docs/adr/0006`
-keeps the analysis of the abstraction that tried to replace them, and
-`docs/migrating.md` says how to move a call site.
+Backpack calls the _definition_ a unit. Here a **floe** is the definition
+and a **unit** is an instantiation of one, under the name a link gives it.
+The divergence is deliberate and load-bearing: a floe can be instantiated
+more than once in one link, so the thing a link keys on, and the thing
+errors name, is the instance rather than the definition.
+
+`examples/nixos/postgres.nix` is why it matters. `services.postgresql` is a
+singleton option path, so two Postgres servers on one host cannot be
+expressed with the nixpkgs module at all; that floe emits
+`systemd.services.postgres-<unit>`, keyed by the link's name for the
+instance, and two coexist.
+
+## What this has that Backpack does not
+
+Three things, each because infrastructure has a problem a compiler does not.
+
+**`collects`** — a hole taking every provider rather than one. Backpack has
+no fan-in, because a Haskell unit does not aggregate. A firewall owner
+collecting a port claim from every service does, and the consumer folds the
+collection: nothing merges in the linker, so there is no lattice and no
+order-independence obligation.
+
+**`T.deferred`** — a value that does not exist until after apply, from which
+the linker derives a deploy edge and a phase. A compiler's inputs all exist;
+a generated secret or an allocated address does not. The provider also
+declares a **retrieval**, an ordinary signature saying where the value will
+be readable, which is how one signature survives two domains with two
+mechanisms.
+
+**`T.derivedFrom`** — a field its provider folded out of a collection. The
+linker withholds that one field from the peers feeding that fold, because
+reading it there is a cycle through the fold. Backpack has nothing to say
+about a unit reading back its own contribution.
+
+## What it does not have
+
+**Nesting.** A link is one fixpoint over one set of units, and there is no
+wider scope it falls back to. Backpack has `include`: a unit that includes
+other units and re-exports what they provide. A `mkInclusion` was built for
+it and withdrawn — a floe whose body is a link makes "floe" two kinds of
+thing — so a value from outside is added to the link as an ordinary unit
+providing it, and what may cross a boundary is a table the distribution
+keeps. `docs/adr/0003` and `docs/adr/0006` are the history.
+
+**Per-floe separate compilation.** Backpack type-checks a unit against its
+holes with no implementation present. Here a floe is checked by linking it
+against stubs, because the check is on values at eval rather than on source
+— and `link.cycles` says why that is unlikely to change soon: in a real link
+the components are large enough that a floe is rarely a unit of anything on
+its own.
+
+## Distributions
+
+The library knows no domain. A **distribution** supplies the signatures its
+floes speak, the output signatures they emit, whatever policies it enforces
+at link, and the adapter that turns a link result into what its world wants.
+
+[Catallaxy](https://github.com/defectivenpc/catallaxy) is one, for
+Kubernetes: forty floes and five labs, and the thing that exercises this
+library in anger. `examples/` holds two small ones — a NixOS probe and a
+Kubernetes contrast — which exist so that the library is developed against
+more than one domain.
 
 ## Next
 
 - [The mkFloe API](floe-api.md): the surface this describes.
-- [RFC 0001](rfcs/0001-floes.md): the design it argues for.
-
-Both pages this used to point at — How It Works, Configure a Lab — are
-catallaxy's, and describe a distribution rather than the model.
+- [RFC 0001](rfcs/0001-floes.md): the design it argues for, and its five
+  open questions — four of which are now answered in place.
