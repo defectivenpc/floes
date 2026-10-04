@@ -62,11 +62,13 @@
   # narrowing of it, one entry per field it added or retyped otherwise.
   #
   # The same relation compatibility decides between a requirer and a provider,
-  # pointed the other way and given a name. A distribution carrying a "what
-  # crosses a boundary" table rests on it, as catallaxy's `crossable` maps a
-  # signature to the form a cluster that does not provide it may read. Nothing
-  # was checking it, so a narrowing that *widened* by mistake surfaced where a
-  # consumer read the field that was not there.
+  # pointed the other way and given a name. Two places rest on it: an inclusion
+  # re-exports a provide under a narrower signature, and a distribution
+  # carrying a "what crosses a boundary" table does the same thing one layer
+  # up, as catallaxy's `crossable` maps a signature to the form a cluster that
+  # does not provide it may read. Neither was checking it, so a narrowing that
+  # *widened* by mistake surfaced where a consumer read the field that was not
+  # there.
   narrows = full: shared: types.mismatches [ ] full.shape shared.shape;
 
   renderInputs = lib.mapAttrs (

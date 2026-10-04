@@ -1,30 +1,39 @@
 # A link can be a unit, which is what `scope` should have been
 
-> **Status: withdrawn.** It shipped, a worked example exercised it, and then
-> it came out again. Two reasons, and the first is the one that decided it:
-> **an inclusion is a floe without a body, which makes "floe" two kinds of
-> thing.** Every other surface a floe has is a declaration about one
-> implementation; this one replaced the implementation with a link, and
-> `mkFloe` grew an argument an author must not set so that `mkInclusion`
-> could set it. That is a seam through the middle of the central concept,
-> paid for by every reader of `mkFloe`.
+> **Status: withdrawn, then restored on the theory.** This shipped, came out
+> again, and is back. The withdrawal and the restoration are both worth
+> reading, because the second answers the first rather than overruling it.
 >
-> The second: nothing adopted it. Catallaxy, the reason it was built and the
-> repository whose `scope` call site it was meant to replace, ported without
-> it, because a lab does not have to be a link over its clusters. Its only
-> user was `examples/k8s`.
+> **Why it came out.** Two reasons. An inclusion was a floe without a body,
+> which made "floe" two kinds of thing: every other surface a floe has is a
+> declaration about one implementation, and this one replaced the
+> implementation with a link, so `mkFloe` grew an argument an author must
+> not set in order for `mkInclusion` to set it. And nothing adopted it.
+> Catallaxy, the repository whose `scope` call site it was built to replace,
+> ported without it, because a lab does not have to be a link over its
+> clusters.
 >
-> **The requirement is still real** and the mechanism that answers it is in
-> here, in "Inner holes stay open": a value from outside becomes an ordinary
-> _unit_ of the consuming link, providing it under the signature the
-> boundary allows. That needs no library feature, and it is what catallaxy
-> does in twenty lines of its own module layer. Wrapping it in a second kind
-> of floe was the mistake.
+> **Why it is back.** The first objection was itself a divergence from the
+> theory, recorded three sections down as "An inclusion cannot also have a
+> body" and admitted there to be "a simplification with no argument behind
+> it beyond less code". MixML and Backpack both let a unit include _and_
+> define. Taking them at their word dissolves the objection rather than
+> accepting it: `mkFloe` gained `units` and `exports` as ordinary surfaces
+> beside `body` and `modules`, a floe may now do either or both, and the
+> argument an author must not set is gone along with `mkFloeWith` and
+> `mkInclusion`. One constructor, one kind of floe, and less surface than
+> the version that was withdrawn.
 >
-> This document survives because its analysis outlived its decision: why
-> `scope` was wrong, why `T.local` is per field and what replaces it, and
-> where the design diverged from the theory it borrows from. A different
-> abstraction for nesting may come later; it should start here.
+> The second objection is answered by an adopter with the three-level shape
+> this was always for: chart floes, a cluster floe that includes them, a lab
+> that includes the clusters.
+>
+> **The flat mechanism still works and is still right for some cases.** A
+> value from outside can become an ordinary _unit_ of the consuming link,
+> providing it under the signature the boundary allows, with no library
+> feature at all. `docs/migrating.md` shows it. Inclusion is what you reach
+> for when the boundary is a reusable component with open holes; the flat
+> form is what you reach for when it is one value crossing once.
 
 `docs/adr/0003` deleted `link`'s `scope`, `T.local` and `isUncrossable` on
 the grounds that nothing in `examples/` used them. That was true, and it was
@@ -133,13 +142,22 @@ provisions and thins by hand; an inclusion exports nothing without
 being the thing floe takes from ML: for infrastructure, what crosses a
 cluster boundary should be a decision rather than a default.
 
-**An inclusion cannot also have a body.** In both MixML and Backpack a unit
-may include _and_ define. This is a simplification with no argument behind
-it beyond less code: a lab wanting to emit its own fragment puts a floe
-inside itself, which works and may be tidier, but the restriction is not
-something the theory asks for. If it bites, the way out is to let
-`inclusion` and `body` coexist and merge the body's `out` with the
-propagated one.
+**An inclusion cannot also have a body.** _Closed: it can._ In both MixML
+and Backpack a unit may include _and_ define, and the first version of this
+refused it as a simplification with no argument behind it beyond less code.
+That restriction turned out to be the thing that made "floe" two kinds of
+thing and got the whole feature withdrawn, so closing it was the condition
+of bringing it back. `units` and `exports` are ordinary `mkFloe` surfaces
+beside `body` and `modules`.
+
+The two halves meet without a merge rule, because output is keyed by unit: a
+floe's own fragment lands under its own name and its units' land under
+`<thisFloe>/<innerUnit>`, so the keys are disjoint by construction. The same
+argument `systemd.services.<name>` gets. Provides needed one rule, since
+both halves could answer the same name: a provide answered by an export
+_and_ by the body is refused, for the reason two providers of one signature
+are. The values may agree today, and nothing would say which the deployer
+read.
 
 One more, because it catches readers out: **flattening is not a no-op.**
 Linking `A, B` as an inclusion and then with `C` is not the same as linking

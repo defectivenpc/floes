@@ -269,7 +269,17 @@ let
       defaults = lib.optionalAttrs (default != null) { SELF = default; };
     };
 
-  # A signature and a narrowing of it, for the `narrows` tests.
+  # ---- Inclusion fixtures (ADR 0006) ---------------------------------------
+
+  OPAQUE = floe.mkSig {
+    name = "OPAQUE";
+    canonicalName = "opaque";
+    description = "Fixture: an output signature holding anything.";
+    fields = T.attrsOf T.any;
+  };
+
+  # Two fields, one of which an export will drop, which is what replaces
+  # `T.local`: the boundary declares what crosses.
   WIDE = floe.mkSig {
     name = "WIDE";
     canonicalName = "wide";
@@ -289,17 +299,39 @@ let
     };
   };
 
-  # Provides WIDE, and mints a deferred value so a consumer produces a token.
+  # Provides WIDE, and mints a deferred value so a consumer *inside* the same
+  # inclusion produces a token whose source is an inner unit.
   insider = floe.mkFloe {
     name = "insider";
     summary = "Fixture floe for a test suite.";
     provides.wide = WIDE;
-    body = _: {
-      provides.wide = {
-        v = "inner";
-        insideOnly = "x";
+    body =
+      { floe, ... }:
+      {
+        provides.wide = {
+          v = "inner";
+          insideOnly = "means nothing out there";
+        };
       };
-    };
+  };
+
+  # Reads the inclusion's open hole and writes a token into output, so both
+  # halves of site qualification are exercised: a token minted inside and one
+  # that arrived from the parent.
+  emitter = floe.mkFloe {
+    name = "emitter";
+    summary = "Fixture floe for a test suite.";
+    requires.wide = WIDE;
+    requires.deferredThing = DEFERRED_THING;
+    out.opaque = OPAQUE;
+    body =
+      { requires, floe, ... }:
+      {
+        out.opaque = {
+          fromOutside = requires.deferredThing.token;
+          fromInside = floe.mkDeferred REF { path = "/run/inner"; };
+        };
+      };
   };
 
   DEFERRED_THING = floe.mkSig {
@@ -321,6 +353,99 @@ let
         provides.deferredThing.token = floe.mkDeferred REF { path = "/run/outer"; };
       };
   };
+
+  # The inclusion: one open hole the parent fills, one export narrowed on the
+  # way out, and two units inside.
+  enclosure = floe.mkFloe {
+    name = "enclosure";
+    summary = "Fixture inclusion for a test suite.";
+    requires.deferredThing = DEFERRED_THING;
+    provides.narrow = NARROW;
+    exports.narrow = "insider";
+    units = _: {
+      insider = insider.instantiate { };
+      emitter = emitter.instantiate { };
+    };
+  };
+
+  nestedLink = floe.link {
+    units = {
+      minter = minter.instantiate { };
+      env = enclosure.instantiate { };
+    };
+  };
+
+  # Both halves at once: a floe that includes a link *and* defines an
+  # implementation. MixML's closure property says a unit that includes may also
+  # define, and this is the fixture that holds floe to it. ADR 0006.
+  #
+  # It re-exports `narrow` from a unit inside, emits a fragment of its own, and
+  # answers a second provide from its own body, so all three paths are live at
+  # once.
+  bothHalves = floe.mkFloe {
+    name = "both-halves";
+    summary = "Fixture: a floe that includes and defines.";
+    requires.deferredThing = DEFERRED_THING;
+
+    provides = {
+      narrow = NARROW;
+      opaqueOwn = OPAQUE;
+    };
+    exports.narrow = "insider";
+
+    out.opaque = OPAQUE;
+
+    units = _: {
+      insider = insider.instantiate { };
+      emitter = emitter.instantiate { };
+    };
+
+    body = _: {
+      provides.opaqueOwn.mine = "from the body";
+      out.opaque.mine = "the floe's own fragment";
+    };
+  };
+
+  bothHalvesLink = floe.link {
+    units = {
+      minter = minter.instantiate { };
+      env = bothHalves.instantiate { };
+    };
+  };
+
+  # An inclusion holding an inclusion. Two levels, because one level cannot
+  # distinguish an inner link's *nodes* from its *leaves*: they coincide until
+  # something inside is itself an inclusion, and the flattening depends on the
+  # difference.
+  twoDeep =
+    let
+      inner = floe.mkFloe {
+        name = "inner";
+        summary = "Fixture inclusion for a test suite.";
+        requires.deferredThing = DEFERRED_THING;
+        provides.narrow = NARROW;
+        exports.narrow = "insider";
+        units = _: {
+          insider = insider.instantiate { };
+          emitter = emitter.instantiate { };
+        };
+      };
+
+      outer = floe.mkFloe {
+        name = "outer";
+        summary = "Fixture inclusion for a test suite.";
+        requires.deferredThing = DEFERRED_THING;
+        provides.narrow = NARROW;
+        exports.narrow = "nested";
+        units = _: { nested = inner.instantiate { }; };
+      };
+    in
+    floe.link {
+      units = {
+        minter = minter.instantiate { };
+        env = outer.instantiate { };
+      };
+    };
 
   # A derivation, as far as any Nix consumer is concerned. `out` is itself,
   # which is what made walking one a stack overflow.
@@ -1073,6 +1198,363 @@ in
       }
     );
     expected = true;
+  };
+
+  # ---- Inclusion (ADR 0006) ------------------------------------------------
+
+  # The half that makes inclusion worth having rather than a convenience:
+  # nothing inside answers `deferredThing`, and the parent does. A cluster with
+  # an open hole is reusable across labs.
+  testAnOpenHoleIsFilledByTheParent = {
+    expr = lib.attrNames nestedLink.out.OPAQUE;
+    expected = [ "env/emitter" ];
+  };
+
+  # The export is a sealing step, which is the whole of what replaces `T.local`:
+  # `insideOnly` is in the signature the units share and not in the one the
+  # boundary declares, so a peer outside cannot read it.
+  testAnExportIsSealedToItsOwnSignature = {
+    expr = nestedLink.provides.env.narrow;
+    expected = {
+      v = "inner";
+    };
+  };
+
+  # Output propagates with inner names qualified, because a backend wants one
+  # bucket rather than a tree to walk.
+  testInnerOutputIsQualifiedByTheInclusion = {
+    expr = lib.attrNames (lib.groupBy (s: s.unit) nestedLink.deferredSites);
+    expected = [ "env/emitter" ];
+  };
+
+  # ---- Including and defining at once --------------------------------------
+  #
+  # MixML's closure property: a unit that includes may also define. The old
+  # `mkInclusion` refused this, which is what made an inclusion "a floe without
+  # a body" and cost `mkFloe` an argument an author was told not to set.
+
+  # Both outputs reach the parent, under keys that cannot collide: the inner
+  # unit's under `<floe>/<unit>`, the floe's own under its own name. Nothing
+  # needed a merge rule, because the keying makes them disjoint.
+  testAFloeCanIncludeAndEmitBoth = {
+    expr = lib.sort (a: b: a < b) (lib.attrNames bothHalvesLink.out.OPAQUE);
+    expected = [
+      "env"
+      "env/emitter"
+    ];
+  };
+
+  testTheOwnFragmentIsTheBodys = {
+    expr = bothHalvesLink.out.OPAQUE.env;
+    expected = {
+      mine = "the floe's own fragment";
+    };
+  };
+
+  # One provide re-exported from inside, one answered by the body, on one floe.
+  testProvidesComeFromBothHalves = {
+    expr = bothHalvesLink.provides.env;
+    expected = {
+      narrow = {
+        v = "inner";
+      };
+      opaqueOwn = {
+        mine = "from the body";
+      };
+    };
+  };
+
+  # It is a leaf as well as a node: its own fragment applies, so `phases` has to
+  # key `env` itself, beside the units inside it. A unit that emits nothing is
+  # still a leaf, which is why `env/insider` is here too.
+  testAFloeThatIncludesAndEmitsIsBothNodeAndLeaf = {
+    expr = lib.sort (a: b: a < b) (lib.attrNames bothHalvesLink.phases);
+    expected = [
+      "env"
+      "env/emitter"
+      "env/insider"
+      "minter"
+    ];
+  };
+
+  # A provide answered twice, once by an export and once by the body, is refused
+  # rather than resolved. Same reason two providers of one signature are: the
+  # values may agree today and nothing would say which one was read.
+  testAProvideAnsweredTwiceIsRefused = {
+    expr = fails (
+      floe.link {
+        units.env =
+          (floe.mkFloe {
+            name = "doubled";
+            summary = "Fixture: answers one provide from both halves.";
+            provides.narrow = NARROW;
+            exports.narrow = "insider";
+            units = _: { insider = insider.instantiate { }; };
+            body = _: { provides.narrow.v = "from the body"; };
+          }).instantiate
+            { };
+      }
+    );
+    expected = true;
+  };
+
+  # Both halves of source qualification. `mkDeferred` binds `source` at
+  # body-eval time, when the inner link cannot know it will be included, so a
+  # token minted inside needs qualifying on the way out, and one that arrived
+  # from the parent already names a unit the parent knows. Qualifying that
+  # second one would invent a node that does not exist.
+  testATokenMintedInsideIsQualifiedAndOneFromOutsideIsNot = {
+    expr =
+      let
+        site = lib.head nestedLink.deferredSites;
+        at = k: (lib.head (lib.filter (s: s.at == [ k ]) nestedLink.deferredSites)).token.source;
+      in
+      {
+        inside = at "fromInside";
+        outside = at "fromOutside";
+      };
+    expected = {
+      inside = "env/emitter";
+      outside = "minter";
+    };
+  };
+
+  # Phases are keyed by what emits, which after an inclusion is its units
+  # rather than it: an inclusion is not a thing that applies.
+  testPhasesAreKeyedByTheUnitsInsideNotTheInclusion = {
+    expr = nestedLink.phases;
+    expected = {
+      minter = 0;
+      "env/emitter" = 1;
+      "env/insider" = 0;
+    };
+  };
+
+  # An inclusion resolves as a floe, so its own hole is an ordinary edge and
+  # its units' edges are ordinary edges one level down.
+  testAnInclusionIsANodeAndSoAreItsUnits = {
+    expr = lib.sort (a: b: a < b) nestedLink.graph.nodes;
+    expected = [
+      "env"
+      "env/emitter"
+      "env/insider"
+      "minter"
+    ];
+  };
+
+  # Composition is closed: an inclusion is a floe, so an inclusion holds one the
+  # same way it holds anything. The hole threads down two levels, the export
+  # narrows at each boundary it crosses, and the output name says where it sat.
+  testAnInclusionHoldsAnInclusion = {
+    expr = {
+      out = lib.attrNames twoDeep.out.OPAQUE;
+      provides = twoDeep.provides.env.narrow;
+    };
+    expected = {
+      out = [ "env/nested/emitter" ];
+      provides = {
+        v = "inner";
+      };
+    };
+  };
+
+  # The distinction one level cannot test. An inner link's nodes include its own
+  # inclusions; its leaves do not. `phases` is keyed by leaves, because an
+  # inclusion is not a thing that applies, so the intermediate `env/nested`
+  # must be a node and must not have a phase.
+  testAnIntermediateInclusionIsANodeWithNoPhase = {
+    expr = {
+      nodes = lib.sort (a: b: a < b) twoDeep.graph.nodes;
+      phased = lib.sort (a: b: a < b) (lib.attrNames twoDeep.phases);
+    };
+    expected = {
+      nodes = [
+        "env"
+        "env/nested"
+        "env/nested/emitter"
+        "env/nested/insider"
+        "minter"
+      ];
+      phased = [
+        "env/nested/emitter"
+        "env/nested/insider"
+        "minter"
+      ];
+    };
+  };
+
+  # The cost of declaring an inclusion's holes rather than inferring them, which
+  # Backpack does and this cannot: `units` is a function of `inputs`, so what is
+  # inside is not known until something evaluates, and a floe's interface has to
+  # be readable from its header first. The under-declared direction is the
+  # unfilled-hole error; this is the other one, and without it a deployer is
+  # asked to wire a value that changes nothing.
+  testAnInclusionHoleNothingInsideReadsIsRefused = {
+    expr = fails (
+      floe.link {
+        units = {
+          minter = minter.instantiate { };
+          env =
+            (floe.mkFloe {
+              name = "roomy";
+              summary = "Fixture: declares a hole nothing inside reads.";
+              requires.deferredThing = DEFERRED_THING;
+              units = _: { insider = insider.instantiate { }; };
+            }).instantiate
+              { };
+        };
+      }
+    );
+    expected = true;
+  };
+
+  # An export signature exists to promise *less* than the one inside. One
+  # promising more is a field a peer can ask for and nothing can answer, which
+  # used to surface at that read rather than here.
+  testAnExportThatWidensIsRefused = {
+    expr = fails (
+      floe.link {
+        units = {
+          minter = minter.instantiate { };
+          env =
+            (floe.mkFloe {
+              name = "widening";
+              summary = "Fixture: exports a wider signature than it re-exports.";
+              requires.deferredThing = DEFERRED_THING;
+              # `insider` provides WIDE; NARROW is the narrowing of it, so
+              # exporting *WIDE* from a unit providing NARROW is the mistake.
+              provides.wide = WIDE;
+              exports.wide = "narrower";
+              units = _: {
+                emitter = emitter.instantiate { };
+                narrower =
+                  (floe.mkFloe {
+                    name = "narrower";
+                    summary = "Fixture: provides only the narrow signature.";
+                    provides.narrow = NARROW;
+                    body = _: {
+                      provides.narrow = {
+                        v = "x";
+                      };
+                    };
+                  }).instantiate
+                    { };
+              };
+            }).instantiate
+              { };
+        };
+      }
+    );
+    expected = true;
+  };
+
+  testExportingFromAUnitThatIsNotThereIsRefused = {
+    expr = fails (
+      floe.link {
+        units.env =
+          (floe.mkFloe {
+            name = "typo";
+            summary = "Fixture: exports from a unit it does not hold.";
+            provides.narrow = NARROW;
+            exports.narrow = "insidr";
+            units = _: { insider = insider.instantiate { }; };
+          }).instantiate
+            { };
+      }
+    );
+    expected = true;
+  };
+
+  # An inclusion re-exports a provide; it does not compute one. So the two
+  # declarations have to agree, and saying only one of them is the mistake.
+  testAProvideWithNoExportIsRefused = {
+    expr = fails (
+      floe.mkFloe {
+        name = "half";
+        summary = "Fixture: provides without saying where from.";
+        provides.narrow = NARROW;
+        units = _: { };
+      }
+    );
+    expected = true;
+  };
+
+  testAnExportWithNoProvideIsRefused = {
+    expr = fails (
+      floe.mkFloe {
+        name = "half";
+        summary = "Fixture: exports without declaring the signature.";
+        exports.narrow = "insider";
+        units = _: { };
+      }
+    );
+    expected = true;
+  };
+
+  # A floe that declares `provides` and has nothing to answer it with: no body,
+  # no modules, no units to re-export from.
+  testAProvideWithNothingToDefineItIsRefused = {
+    expr = fails (
+      floe.mkFloe {
+        name = "empty";
+        summary = "Fixture: promises something and implements nothing.";
+        provides.narrow = NARROW;
+      }
+    );
+    expected = true;
+  };
+
+  testExportsWithoutUnitsIsRefused = {
+    expr = fails (
+      floe.mkFloe {
+        name = "nowhere";
+        summary = "Fixture: exports from units it does not have.";
+        provides.narrow = NARROW;
+        exports.narrow = "insider";
+      }
+    );
+    expected = true;
+  };
+
+  # ---- Internals are not reachable ----------------------------------------
+  #
+  # `link` carries two arguments the library passes to itself when it links an
+  # inclusion's units. They are public and documented as internal, which is a
+  # promise rather than a property, so each has a gate.
+  #
+  # `mkFloe` used to need the same guard for an `inclusion` argument an author
+  # was told not to set. It does not any more: `units` and `exports` are
+  # ordinary surfaces an author may write, and the internal shape is built from
+  # them rather than accepted. `mkFloe`'s closed pattern refuses a forged
+  # `inclusion` as the unknown key it now is, with Nix's own "called with
+  # unexpected argument", which no test can hold because it escapes `tryEval`.
+  # Closed by construction beats closed by a check.
+
+  # A forged `synthetic` would make a real unit vanish from `out`, `phases`
+  # and the graph, silently, because every view is computed as if a synthetic
+  # unit's value had simply arrived.
+  testForgedLinkInternalsAreRefused = {
+    expr = {
+      synthetic = fails (
+        floe.link {
+          units.minter = minter.instantiate { };
+          synthetic.minter = {
+            hole = "x";
+            signature = "X";
+          };
+        }
+      );
+      withinInclusion = fails (
+        floe.link {
+          units.minter = minter.instantiate { };
+          withinInclusion = "pretend";
+        }
+      );
+    };
+    expected = {
+      synthetic = true;
+      withinInclusion = true;
+    };
   };
 
   # ---- Narrowing -----------------------------------------------------------

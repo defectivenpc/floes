@@ -74,6 +74,12 @@ rec {
           );
       };
 
+  # The one constructor. A floe may define an implementation, include a link of
+  # other units, or do both, which is MixML's closure property: linking units
+  # yields a unit, and a unit that includes may also define. There used to be a
+  # second constructor for the including case and an argument on this one that
+  # an author was told not to set, which made "floe" two kinds of thing. ADR
+  # 0006.
   mkFloe =
     {
       name,
@@ -117,6 +123,41 @@ rec {
       modules ? [ ],
       body ? null,
 
+      # units :: { inputs, requires, collects, floe } -> { UnitName -> instance }
+      #
+      # The other half of a body: a link of other units, so a lab holding
+      # clusters is the same mechanism as a cluster holding floes rather than a
+      # second one beside it. Backpack's `include`, and what replaces the
+      # `scope` ADR 0003 deleted. ADR 0006.
+      #
+      # A function of this floe's own surfaces, because the units inside are
+      # built from what the parent supplied. Every outer hole this floe declares
+      # becomes a unit inside providing what the parent resolved it to, so the
+      # units inside resolve against one set of providers by one rule.
+      #
+      # Composes with `body`: a floe may include a link *and* emit a fragment of
+      # its own. The inner units' output propagates to the parent keyed by
+      # `<thisFloe>/<innerUnit>`, and this floe's own output is keyed by its own
+      # name, so the two cannot collide.
+      units ? null,
+
+      # exports :: { ProvideName -> "<unit>" | "<unit>/<provide>" }
+      #
+      # Which inner provide each re-exported `provides` comes from. `.bind`
+      # names a provider outside; this names one inside.
+      #
+      # The signature in `provides` is usually *narrower* than the one inside:
+      # that is how a value meaningful only in here stays in here, since the
+      # export is itself a sealing step, and it is why `T.local` is unnecessary
+      # rather than merely absent. A provide not listed here is the body's to
+      # define.
+      exports ? { },
+
+      # The inner link's own `defaults` and `policies`, for the link `units`
+      # builds. Meaningless without `units`.
+      defaults ? { },
+      policies ? [ ],
+
       # singleton :: bool
       #
       # Whether two instances of this floe in one link is an error.
@@ -143,6 +184,8 @@ rec {
         else
           null;
 
+      defines = body != null || modules != [ ];
+
       _bodyForm =
         if body != null && modules != [ ] then
           throw (
@@ -152,6 +195,47 @@ rec {
           )
         else if body != null && !lib.isFunction body then
           throw "floe '${name}': `body` must be a function of { inputs, requires, collects, floe }."
+        else if units == null && !defines && provides != { } then
+          throw (
+            "floe '${name}': declares `provides` and has no `body`, `modules` or `units` "
+            + "to define it with. A floe either implements what it promises or "
+            + "re-exports it from units it includes."
+          )
+        else
+          null;
+
+      # `units` and `exports` go together, and `exports` must name provides this
+      # floe declares. The reverse only holds for a floe with no body: there,
+      # every provide has to be re-exported from inside, because nothing else
+      # could define it. With a body, an unexported provide is the body's, and
+      # whether it defined one is not knowable until it runs. `lib/link.nix`
+      # reports that.
+      unexported = lib.subtractLists (lib.attrNames exports) (lib.attrNames provides);
+      notProvided = lib.subtractLists (lib.attrNames provides) (lib.attrNames exports);
+
+      _inclusionForm =
+        if units != null && !lib.isFunction units then
+          throw (
+            "floe '${name}': `units` must be a function of "
+            + "{ inputs, requires, collects, floe }, returning the units to link."
+          )
+        else if units == null && exports != { } then
+          throw (
+            "floe '${name}': has `exports` and no `units`. An export re-exports a "
+            + "provide from a unit this floe includes, and it includes none."
+          )
+        else if notProvided != [ ] then
+          throw (
+            "floe '${name}': exports ${lib.concatMapStringsSep ", " (p: "'${p}'") notProvided} "
+            + "without declaring it in `provides`. The signature is what a peer reads it "
+            + "through, and it is usually narrower than the one inside."
+          )
+        else if units != null && !defines && unexported != [ ] then
+          throw (
+            "floe '${name}': provides ${lib.concatMapStringsSep ", " (p: "'${p}'") unexported} "
+            + "and does not say where from. Add `exports.<name> = \"<unit>\"` for each, or "
+            + "a `body` that defines it: a floe with neither cannot answer the signature."
+          )
         else
           null;
 
@@ -240,42 +324,59 @@ rec {
 
       def = builtins.seq _ (
         builtins.seq _bodyForm (
-          builtins.seq _inputTypes {
-            __floeDef = true;
-            inherit
-              name
-              summary
-              inputs
-              requires
-              optional
-              collects
-              provides
-              out
-              modules
-              body
-              singleton
-              ;
+          builtins.seq _inclusionForm (
+            builtins.seq _inputTypes {
+              __floeDef = true;
+              inherit
+                name
+                summary
+                inputs
+                requires
+                optional
+                collects
+                provides
+                out
+                modules
+                body
+                singleton
+                ;
 
-            # instantiate :: attrset -> instance
-            # `inputsChecked` is validated and defaults-filled; `supplied` is
-            # verbatim, and wins when the floe is re-instantiated.
-            instantiate =
-              supplied:
-              let
-                inst = {
-                  __floeInstance = true;
-                  inherit def supplied;
-                  inputsChecked = checkInputs supplied;
-                  bindings = { };
+              # The link half, or null. `lib/link.nix` reads this; an author
+              # writes `units`, `exports`, `defaults` and `policies`.
+              inclusion =
+                if units == null then
+                  null
+                else
+                  {
+                    inherit
+                      units
+                      exports
+                      defaults
+                      policies
+                      ;
+                  };
 
-                  # bind :: { Hole -> "<unit>" | "<unit>/<provide>" } -> instance
-                  # Which provider a hole means, when the deployer has two. The
-                  # author cannot say: a floe does not know its peers' names.
-                  bind = b: inst // { bindings = inst.bindings // b; };
-                };
-              in
-              inst;
-          }
+              # instantiate :: attrset -> instance
+              # `inputsChecked` is validated and defaults-filled; `supplied` is
+              # verbatim, and wins when the floe is re-instantiated.
+              instantiate =
+                supplied:
+                let
+                  inst = {
+                    __floeInstance = true;
+                    inherit def supplied;
+                    inputsChecked = checkInputs supplied;
+                    bindings = { };
+
+                    # bind :: { Hole -> "<unit>" | "<unit>/<provide>" } -> instance
+                    # Which provider a hole means, when the deployer has two. The
+                    # author cannot say: a floe does not know its peers' names.
+                    bind = b: inst // { bindings = inst.bindings // b; };
+                  };
+                in
+                inst;
+            }
+          )
         )
       );
     in

@@ -55,15 +55,22 @@ linker withholds that one field from the peers feeding that fold, because
 reading it there is a cycle through the fold. Backpack has nothing to say
 about a unit reading back its own contribution.
 
-## What it does not have
+## Closure, which is why nesting is not a separate mechanism
 
-**Nesting.** A link is one fixpoint over one set of units, and there is no
-wider scope it falls back to. Backpack has `include`: a unit that includes
-other units and re-exports what they provide. A `mkInclusion` existed for it
-and came out again, because a floe whose body is a link makes "floe" two
-kinds of thing. A value from outside joins the link as an ordinary unit
-providing it, and the distribution keeps the table of what may cross a
-boundary. `docs/adr/0003` and `docs/adr/0006` are the history.
+MixML's central result, and the reason the vocabulary holds at every level:
+linking units yields a unit, so functor and structure are one notion.
+Backpack inherits it, where a unit with holes is a unit and `include` builds
+one from others. A floe takes `units` beside `body`, so a cluster that
+includes chart floes and a lab that includes clusters are the same mechanism
+rather than two, and a floe may include and define at once. `docs/adr/0006`
+carries the argument and the two places this still diverges.
+
+A link is still one fixpoint over one set of units, with no wider scope it
+falls back to. An inclusion is a boundary, not a lookup path: `scope` was
+the version that made it a second resolution path consulted when the first
+failed, and `docs/adr/0003` deleted that.
+
+## What it does not have
 
 **Per-floe separate compilation.** Backpack type-checks a unit against its
 holes with no implementation present. Here you check a floe by linking it

@@ -140,6 +140,20 @@ fields.
 result with `lib.fix`, sealing, and collecting output. One link is one
 fixpoint. _Avoid_: graph, deployment, assembly.
 
+**Inclusion**: A floe whose body is a link of other units, declared as
+`units` on `mkFloe`. Backpack's `include`, and MixML's closure property: a
+link is a unit, so a lab holding clusters is the same mechanism as a cluster
+holding floes. A floe may include and define at once, and one that only
+includes is a node in the graph without being a leaf. _Avoid_: nesting,
+sub-link, scope.
+
+**Export signature**: The signature an inclusion re-exports an inner provide
+under, named by `exports`. Usually narrower than the one inside, and the
+narrowing is what keeps a field meaningful only in there from leaving,
+because the export is a sealing step. `link` refuses one that promises more
+than what it re-exports. This is what replaced `T.local`, at the boundary
+rather than on the type.
+
 **Binding**: A deployer saying which provider a particular hole means, when
 there is more than one. The deployer's to make and not the author's, because
 a floe does not know its peers' names.

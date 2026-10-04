@@ -171,8 +171,7 @@ lib.runTests {
 
   # And the default did not collapse them without a word: each backup still
   # dumps a different database. A default that merged consumers unannounced
-  # would be worse
-  # than the breakage it replaced.
+  # would be worse than the breakage it replaced.
   testTheDefaultDoesNotCollapseConsumers = {
     expr =
       let
@@ -683,19 +682,29 @@ lib.runTests {
     };
   };
 
-  # Nothing here collects: Kubernetes components have coarse grain and clean
-  # boundaries, which is the contrast with the NixOS example's three
-  # collections.
-  testTheKubernetesExampleCollectsNothing = {
+  # Nothing *inside* a cluster collects: Kubernetes components have coarse grain
+  # and clean boundaries, which is the contrast with the NixOS example's three
+  # collections. The lab is where a collection appears, and it is a different
+  # kind of fan-in: one contribution per cluster rather than per service.
+  testNothingInsideAClusterCollects = {
     expr = lib.all (f: f.collects == { }) (
       with k8s.floes;
       [
         cluster
         certManager
         podinfo
+        labCa
       ]
     );
     expected = true;
+  };
+
+  testTheLabCollectsOneSummaryPerCluster = {
+    expr = k8s.lab.out."k8s.manifests".report.configMap.data;
+    expected = {
+      app = "1.31";
+      web = "1.30";
+    };
   };
 
   # ---- What the cycles say about caching (ADR 0008) ----------------------
@@ -759,4 +768,100 @@ lib.runTests {
     expected = [ ];
   };
 
+  # ---- The lab: a link as a unit of another link (ADR 0006) --------------
+  #
+  # The worked multi-link example `docs/adr/0003` set as the condition for
+  # `scope` coming back. Nothing new is linking here: an inclusion is a floe
+  # whose body is a link, so the lab resolves it by the rules it already had.
+
+  # Each cluster leaves `issuer` open and the lab fills it, which is what makes
+  # one cluster definition reusable across labs. Two instances of it here, with
+  # different inputs.
+  testTheLabFillsEachClustersOpenHole = {
+    expr = map (e: "${e.from}->${e.to} via ${e.via}") (
+      lib.filter (e: e.via == "issuer") k8s.lab.graph.edges
+    );
+    expected = [
+      "app->ca via issuer"
+      "web->ca via issuer"
+    ];
+  };
+
+  # The export is a sealing step, and this is what replaces `T.local`.
+  # `CLUSTER` carries `apiServer`, an address meaningful only inside the cluster
+  # it describes; `CLUSTER_SUMMARY` does not, so the lab cannot read it.
+  testAnExportDropsWhatMeansNothingOutside = {
+    expr = {
+      inside = lib.attrNames k8s.link.provides.cluster.cluster;
+      crossing = lib.attrNames k8s.lab.provides.app.clusterSummary;
+    };
+    expected = {
+      inside = [
+        "apiServer"
+        "version"
+      ];
+      crossing = [ "version" ];
+    };
+  };
+
+  # One bucket, with inner units qualified by the inclusion holding them, so a
+  # backend reads this and does not care how deep anything sat.
+  #
+  # `app` and `web` are in here beside `app/podinfo` and `web/podinfo` because
+  # `clusterEnv` both includes and defines: the bare keys are its own namespace
+  # fragment, the qualified ones are its units'. Two kinds of contribution from
+  # one floe, and the keying keeps them apart with no merge rule.
+  testTheLabsOutputIsOneFlatBucket = {
+    expr = lib.attrNames k8s.lab.out."k8s.manifests";
+    expected = [
+      "app"
+      "app/podinfo"
+      "ca"
+      "report"
+      "web"
+      "web/podinfo"
+    ];
+  };
+
+  # And each instance's own fragment is keyed by the link's name for it, so two
+  # cluster-envs are two namespaces rather than one merged one.
+  testEachClusterEnvEmitsItsOwnNamespace = {
+    expr = {
+      app = k8s.lab.out."k8s.manifests".app.namespace.metadata.name;
+      web = k8s.lab.out."k8s.manifests".web.namespace.metadata.name;
+    };
+    expected = {
+      app = "app";
+      web = "web";
+    };
+  };
+
+  # Phases span the nesting, and are keyed by what emits. A floe that only
+  # includes is not a thing that applies; one that also defines is, which is why
+  # `app` and `web` are keyed here as well as their units.
+  testPhasesSpanTheNesting = {
+    expr = k8s.lab.phases;
+    expected = {
+      ca = 0;
+      report = 0;
+      app = 0;
+      "app/cluster" = 0;
+      "app/podinfo" = 1;
+      web = 0;
+      "web/cluster" = 0;
+      "web/podinfo" = 1;
+    };
+  };
+
+  # The deploy edge crosses the boundary and still names a unit that exists.
+  # The token was minted by `ca` at the lab level and reached output inside two
+  # clusters, so its `source` must *not* be qualified, since the mistake there
+  # invents `app/ca`, which is nothing.
+  testADeferredValueCrossesIntoEachCluster = {
+    expr = lib.sort (a: b: a < b) (map (s: "${s.unit} <- ${s.token.source}") k8s.lab.deferredSites);
+    expected = [
+      "app/podinfo <- ca"
+      "web/podinfo <- ca"
+    ];
+  };
 }

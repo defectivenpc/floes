@@ -20,7 +20,8 @@ Kubernetes.
 ```nix
 mkFloe { name, summary, inputs ? {}, requires ? {}, optional ? {},
          collects ? {}, provides ? {}, out ? {}, modules ? [],
-         body ? null, singleton ? false }
+         body ? null, units ? null, exports ? {}, defaults ? {},
+         policies ? [], singleton ? false }
 ```
 
 | Argument    | Required | Type                   | Meaning                                              |
@@ -35,6 +36,10 @@ mkFloe { name, summary, inputs ? {}, requires ? {}, optional ? {},
 | `out`       | no       | attrset of signatures  | what it emits                                        |
 | `modules`   | no       | list of modules        | the body, with the module system's merge             |
 | `body`      | no       | function               | the body, as a plain function; no `evalModules`      |
+| `units`     | no       | function               | a link of other units this floe includes             |
+| `exports`   | no       | attrset of refs        | which inner provide each re-exported `provides` is   |
+| `defaults`  | no       | attrset                | the inner link's `defaults`; needs `units`           |
+| `policies`  | no       | list of functions      | the inner link's `policies`; needs `units`           |
 | `singleton` | no       | bool                   | whether two instances in one link is an error        |
 
 The pattern is **closed**: an unknown key is an error. `summary` defaults to
@@ -181,6 +186,69 @@ Declaring `provides` in `mkFloe` _and_ defining it in the body is not
 duplication: the linker resolves every hole from headers before any body
 evaluates, which is what makes a link's wiring checkable without running
 anything.
+
+### `units`, and a floe that includes a link
+
+A floe's body may be a link of other units, so a lab holding clusters is the
+same mechanism as a cluster holding floes. This is Backpack's `include`, and
+MixML's closure property: linking units yields a unit.
+
+```nix
+cluster = floe.mkFloe {
+  name = "cluster";
+  summary = "One cluster and the workloads in it, linked as a unit.";
+
+  requires.issuance = sigs.X509_ISSUANCE;   # left open, the parent fills it
+
+  provides.trust = sigs.CROSS_TRUST;        # what crosses outward
+  exports.trust = "trust-manager/trust";    # and which inner provide it is
+
+  units = { inputs, requires, ... }: {
+    harbor = floes.harbor.instantiate { };
+    podinfo = floes.podinfo.instantiate { };
+  };
+};
+```
+
+Everything an ordinary floe has, it has: `inputs`, `.instantiate`, `.bind`,
+the three hole arities. Four rules make it work.
+
+**Inner holes stay open.** A hole the units inside leave unfilled is
+declared on the inclusion, with the ordinary arities, and the parent fills
+it. Each one becomes a _unit_ inside providing what the parent resolved it
+to, so the units inside resolve against one set of providers by one rule,
+with a real eval edge pointing at it. That is the difference from `scope`,
+which was a second resolution path consulted when the first failed.
+
+**Holes are declared, not inferred.** Backpack computes an including unit's
+holes; here `units` is a function of `inputs`, so nothing knows what is
+inside until something evaluates, and a floe's interface has to be readable
+from its header. A hole declared and read by nothing inside is refused too,
+because it asks a deployer to wire a value that changes nothing.
+
+**An export seals.** `provides` is usually _narrower_ than the signature
+inside, and the narrowing is what keeps a field meaningful only in there
+from leaving. `link` checks that each export really narrows what it
+re-exports, so one promising _more_ is an error rather than a field a peer
+asks for and nothing answers. That is what replaces `T.local`, at the
+boundary rather than on the type.
+
+**It may also define.** `units` composes with `body` and `modules`: a floe
+may include a link and emit a fragment of its own.
+
+```nix
+out.k8s = manifests;
+body = { floe, ... }: { out.k8s.namespace.metadata.name = floe.name; };
+```
+
+The inner units' output reaches the parent keyed by `<thisFloe>/<innerUnit>`
+and the floe's own under its own name, so the two cannot collide and there
+is no merge rule. A provide answered by an export _and_ by the body is
+refused, for the reason two providers of one signature are.
+
+Flattening is not a no-op: linking `A, B` as an inclusion and then with `C`
+is not linking `A, B, C`, because the boundary seals. `singleton` stays per
+link, because two inner links are two apply targets.
 
 ## `mkSig`
 
@@ -461,9 +529,10 @@ floe.narrows full shared   # [] when `shared` promises no more than `full`
 
 What an export signature is to the provide it re-exports, and what a
 distribution's "this may cross a boundary" table holds. The same relation
-compatibility decides between a requirer and a provider, pointed inward, and
-`link` checks it for every `exports` entry: an export promising _more_ than
-what it re-exports is a field a peer can ask for and nothing can answer.
+compatibility decides between a requirer and a provider, pointed inward.
+`link` calls it for every `exports` entry of a floe that includes one, so an
+export promising _more_ than what it re-exports is an error. Call it
+yourself for the table: nothing in `link` knows a distribution has one.
 
 Nothing checks that a provider of a signature **behaves** like one; see RFC
 0001 §7.

@@ -70,10 +70,14 @@ distribution
 >
 > - **A provider must answer the requirer's signature** (ADR 0007), which is
 >   §7.4's versioning question answered without a version field.
-> - **Nesting is still absent.** §4.6 is one fixpoint over one set of units,
->   and it still is. `scope` is gone (ADR 0003), `mkInclusion` came and went
->   (ADR 0006), and a distribution instead adds the outside value to the
->   link as an ordinary unit.
+> - **Nesting arrived, left, and came back.** §4.6 is still one fixpoint
+>   over one set of units, and a link is still not a scope anything falls
+>   back to. What a floe gained is `units`: a body that is a link, which is
+>   Backpack's `include` and MixML's closure property. `scope` is gone for
+>   good (ADR 0003); `mkInclusion` shipped, came out, and returned as
+>   ordinary `mkFloe` surfaces once a floe could include and define at once
+>   (ADR 0006). A distribution may still add an outside value to a link as
+>   an ordinary unit, which needs no feature at all.
 > - **A third arity**, `optional` (ADR 0009), resolving only when named.
 > - **`T.package`**, and the rule that a package set is an input and never a
 >   signature, which is what keeps per-floe eval cacheable (ADR 0008).

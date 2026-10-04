@@ -15,6 +15,30 @@ release; the ADRs keep their reasoning.
 
 ### Added
 
+- **`mkFloe`'s `units` and `exports`: a floe may include a link of other
+  units.** Backpack's `include`, and MixML's closure property, which is that
+  linking units yields a unit. So a cluster that includes chart floes and a
+  lab that includes clusters are the same mechanism rather than two, and
+  `scope` stays deleted: an inclusion is a boundary, not a second resolution
+  path.
+
+  Inner holes stay open for the parent to fill, and each resolves to a unit
+  inside providing what the parent gave it, with a real eval edge. `exports`
+  names which inner provide each re-exported `provides` is, under a
+  signature usually narrower than the one inside, and `link` refuses an
+  export that promises more than what it re-exports. Output propagates keyed
+  by `<thisFloe>/<innerUnit>`, and `phases` and `cycles` span the nesting.
+
+  **A floe may include and define at once**, which the first version
+  refused. That refusal was itself a divergence from MixML and Backpack,
+  where a unit may include _and_ define, and it was what made "floe" two
+  kinds of thing and got the whole feature withdrawn once already. Closing
+  it is what let it come back: `units` sits beside `body` as an ordinary
+  surface, so `mkFloeWith`, `mkInclusion` and the `inclusion` argument an
+  author was told not to set are all gone. One constructor, and less surface
+  than the withdrawn version had.
+  [ADR 0006](docs/adr/0006-a-link-can-be-a-unit.md)
+
 - **`collects`**, a hole arity taking every provider in the link, keyed by
   the unit that provided it, and possibly empty. The consumer folds it:
   nothing merges in the linker, so there are no lattice types and no

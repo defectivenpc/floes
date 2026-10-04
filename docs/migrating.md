@@ -92,10 +92,12 @@ with `floe.narrows`. `T.local` was that decision inferred from a per-field
 marking; a table is the same decision said once, at the boundary that has
 it.
 
-An earlier answer was `mkInclusion`, a floe whose body is a link. It came
-out again after being built and exercised: a floe without a body makes
-"floe" two kinds of thing, and the mechanism above is what it was wrapping.
-[ADR 0006](adr/0006-a-link-can-be-a-unit.md) keeps the analysis.
+The other answer is a floe that includes a link, which is `mkFloe`'s `units`
+and `exports`. Reach for it when the boundary is a reusable component with
+open holes, and for the pattern above when it is one value crossing once. It
+shipped as `mkInclusion`, came out when a floe without a body made "floe"
+two kinds of thing, and came back once a floe could include and define at
+once. [ADR 0006](adr/0006-a-link-can-be-a-unit.md) has that history.
 
 ## Added
 

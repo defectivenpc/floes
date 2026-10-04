@@ -33,6 +33,9 @@
         wiringOne
         wiringOptional
         wiringAll
+        synthetic
+        isSynthetic
+        withinInclusion
         ;
 
       # A name may not mean two different signatures.
@@ -169,6 +172,34 @@
           + lib.concatStringsSep "\n      - " ms
         );
 
+      # A hole an inclusion declared that nothing inside it reads.
+      #
+      # This is the cost of declaring an inclusion's holes rather than inferring
+      # them from its units, which Backpack can do and this cannot: `units` is a
+      # function of `inputs`, so the set of units inside is not known until
+      # something evaluates, and a floe's interface has to be readable from its
+      # header before anything does. The under-declared direction is caught by
+      # the unfilled-hole error; this is the other one.
+      #
+      # An unused declaration asks a deployer to wire something that changes
+      # nothing, and `.bind` is the ceremony the whole arity story is measured
+      # in, so a hole that buys nothing is worth refusing.
+      unreadInjections =
+        let
+          targets = lib.unique (
+            lib.concatMap (
+              u:
+              map (p: p.instName) (lib.attrValues wiringOne.${u})
+              ++ map (p: p.instName) (lib.filter (p: p != null) (lib.attrValues wiringOptional.${u}))
+              ++ map (p: p.instName) (lib.concatLists (lib.attrValues wiringAll.${u}))
+            ) instNames
+          );
+          unread = lib.filter (s: !(lib.elem s targets)) (lib.attrNames synthetic);
+        in
+        # Per hole rather than per injected unit: a collected hole injects one
+        # unit per contributor, and they are all the same mistake.
+        lib.unique (map (s: synthetic.${s}) unread);
+
       incompatibilities = lib.concatMap (
         u:
         let
@@ -239,6 +270,17 @@
           + "${(lib.head unnamedOptionals).hole} = \"${(lib.head unnamedOptionals).candidate}\"; }`, "
           + "or for every unit with `link { defaults.${(lib.head unnamedOptionals).sig.name} = "
           + "\"${(lib.head unnamedOptionals).candidate}\"; }`."
+        ))
+        (lib.optional (unreadInjections != [ ]) (
+          "floe link error: inclusion '${toString withinInclusion}' declares a hole that "
+          + "nothing inside it reads.\n  - "
+          + lib.concatMapStringsSep "\n  - " (
+            i: "hole '${i.hole}' (signature '${i.signature}')"
+          ) unreadInjections
+          + "\n\n  Its units: ${lib.concatStringsSep ", " (lib.filter (n: !(isSynthetic n)) instNames)}"
+          + "\n\nA declared hole is something the parent has to supply, so one nothing "
+          + "reads asks a deployer to wire a value that changes nothing. Remove it, or "
+          + "give the unit inside that was meant to read it the hole."
         ))
         (lib.optional (incompatibilities != [ ]) (
           "floe link error: a provider cannot answer the signature a unit asked for.\n  - "

@@ -6,7 +6,9 @@
   one to measure.
   [ADR 0001](../docs/adr/0001-the-nixos-examples-give-namespaces-an-owner.md).
 - **[`k8s/`](k8s)**: the contrast, in one file. Coarse units, a resolution
-  chain, loose output. The shape floe's design started from.
+  chain, loose output. The shape floe's design started from. Also the
+  **lab**: two clusters as units of one link, each a link of its own.
+  [ADR 0006](../docs/adr/0006-a-link-can-be-a-unit.md).
 - **[`wrapped/`](wrapped)**: a spike that answers "could floes just wrap
   nixpkgs modules?". They can, at about 200× the cost.
   [ADR 0002](../docs/adr/0002-wrapping-nixpkgs-modules-is-not-the-path.md).
@@ -299,21 +301,70 @@ edge is per _hole_, and the dependency is per _field_. `nginx` reads
 reopening this should start, and `testTheFleetIsOneComponentOfTwentySix`
 pins the numbers.
 
+## What the lab establishes
+
+`k8s/` holds a second link: a lab whose units are two clusters, each a link
+of its own. It is the worked multi-link case
+[ADR 0003](../docs/adr/0003-trim-unexercised-surface.md) set as the
+condition for `scope` coming back, and it came back as something else.
+
+**Nothing new is linking.** A floe that includes a link resolves by the
+rules the linker already had: `.bind`, `defaults`, the three arities,
+sealing. A parent's value reaches the units inside by becoming a _unit_
+inside that provides it, which is why resolution gained no second path.
+`scope` was that second path, consulted when the first failed.
+
+**A cluster leaves a hole open and the lab fills it.** Nothing inside either
+cluster answers `ISSUER`; the lab's trust root does. That is what makes one
+cluster definition instantiable twice with different inputs, and what a
+closed inclusion could not express, since a lab could only read from its
+clusters and never supply them.
+
+**An export is where `T.local` went.** `CLUSTER` carries `apiServer`, an
+address meaningful only inside the cluster it describes. The export
+signature `CLUSTER_SUMMARY` does not carry it, so the lab reads `version`
+and cannot reach the address. The boundary declares what crosses and sealing
+drops the rest, instead of every field carrying a locality marking for a
+boundary most of them never meet.
+
+**A cluster both includes and defines.** `clusterEnv` includes a link of two
+units _and_ emits a namespace of its own, which is MixML's closure property
+taken at its word: a unit that includes may also define. The output lands
+under `app` beside its units' under `app/podinfo`, so the two cannot collide
+and nothing needed a merge rule. `floe.name` keys the namespace, so the two
+instances are two namespaces rather than one.
+
+**Output is one flat bucket, and ordering spans the nesting.** The lab's
+manifests are keyed `app`, `app/podinfo`, `ca`, `report`, `web`,
+`web/podinfo`: a backend reads one bucket and does not care how deep
+anything sat. The CA's fingerprint is deferred, reaches output inside _both_
+clusters, and puts both workloads in phase 1 behind it. `phases` is keyed by
+what emits, so a floe that only includes has none, and one that also defines
+is keyed like any other emitter.
+
+The trap worth recording, because a test caught it as a real bug: a token
+minted at the lab and written inside a cluster must **not** have its source
+qualified. Doing so invents `app/ca`, which is nothing. Only a token minted
+inside needs it.
+
 ## The contrast with `k8s/`
 
 |               | nixos                 | k8s                 |
 | ------------- | --------------------- | ------------------- |
 | unit          | a systemd service     | a Helm chart        |
-| floes         | 7                     | 5                   |
+| floes         | 7                     | 6                   |
 | signatures    | 6                     | 4                   |
 | collected     | 3, per service        | 1, per cluster      |
-| body form     | 5 `body`, 2 `modules` | 5 `body`            |
+| body form     | 5 `body`, 2 `modules` | 6 `body`, 1 `units` |
 | eval cycles   | 2, both mutual        | 0, a chain          |
 | output typing | narrow, per floe      | loose, shared       |
 | nesting       | one link              | a lab, two clusters |
+| inclusion     | none                  | `units` + `exports` |
 
 Kubernetes components have coarse grain and clean boundaries, so nothing
-here needs a collection and nothing points backwards. A rendered manifest is
+_inside a cluster_ needs a collection and nothing points backwards. The one
+collection sits at the lab, and it is a different kind of fan-in: one
+contribution per cluster rather than one per service. A rendered manifest is
 opaque by nature, so there is no useful `T.record` to write for it, and floe
 does not insist on one. Both use `mkSig`, `requires`, `collects` and `out`
 unmodified. `networking` and `nginx` stay on `modules` so that path stays
