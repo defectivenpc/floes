@@ -2,7 +2,7 @@
 
 A mixin module system for Nix: typed interfaces and linking between
 components, layered over the NixOS module system rather than replacing it.
-The vocabulary is borrowed from Haskell's Backpack and ML, which is why
+Floe borrows its vocabulary from Haskell's Backpack and ML, which is why
 [The Model](docs/model.md) explains most of it at once.
 
 This file is a glossary and nothing else. Design decisions live in
@@ -14,13 +14,13 @@ This file is a glossary and nothing else. Design decisions live in
 
 ### The unit model
 
-**Floe**: A component with declared surfaces — inputs, requires, provides,
-out — and a body of ordinary NixOS modules evaluated in its own isolated
+**Floe**: A component with declared surfaces (inputs, requires, provides,
+out) and a body of ordinary NixOS modules evaluated in its own isolated
 `evalModules`. _Avoid_: module, component, package.
 
 **Instantiation**: Applying a floe to the inputs a deployer chose, producing
-a value that can be linked. A floe is instantiated, never enabled — there is
-no `enable`, and a floe absent from a link is simply not there.
+a value that can be linked. You instantiate a floe rather than enabling it:
+there is no `enable`, and a floe absent from a link is not there.
 
 **Unit**: An instantiated floe under the name a link gives it. The name a
 link keys on, and the name errors use. _Note_: Backpack calls the
@@ -30,17 +30,18 @@ link.
 
 **Singleton floe**: A floe whose body writes fixed output paths rather than
 keying them by the link's name for the instance, so two instances of it
-would emit the same paths and merge silently. Declared by the author;
-refused by the linker. _Avoid_: unique floe, single-instance.
+would emit the same paths and merge without complaint. The author declares
+it; the linker refuses the second instance. _Avoid_: unique floe,
+single-instance.
 
-**Body**: What a floe is implemented by — either `body`, a plain function of
-its declared surfaces, or `modules`, ordinary NixOS modules for a floe that
+**Body**: What implements a floe: either `body`, a plain function of its
+declared surfaces, or `modules`, ordinary NixOS modules for a floe that
 wants the module system's merge inside itself. Either way it reads its
 resolved holes and nothing else: there is no ambient option tree.
 
 ### Interfaces
 
-**Signature**: A named schema for anything a floe commits to — a value it
+**Signature**: A named schema for anything a floe commits to: a value it
 exchanges with a peer, or a product it emits. Resolution keys on its `name`,
 so two signatures sharing a name are the same signature. _Avoid_: interface,
 contract, capability, output kind.
@@ -53,8 +54,8 @@ a replica of the same thing.
 **Fields**: What a signature declares, as an attrset of `T` schemas. The
 vocabulary is ML's and the mixin module system's: fields belong to a
 signature, and nothing about them says a direction, because a signature has
-none — the surface it sits on is what makes it an input or an output. A
-signature with nothing worth naming — a rendered manifest — takes a bare `T`
+none: the surface it sits on is what makes it an input or an output. A
+signature with nothing worth naming, a rendered manifest, takes a bare `T`
 in the same place. _Avoid_: shape, schema.
 
 **Hole**: A signature a floe requires and does not implement. The arity is a
@@ -63,20 +64,20 @@ one, `optional` is zero or one, `collects` is every provider. _Avoid_:
 dependency, slot.
 
 **Optional hole**: A hole a floe can do without, named in `optional`. It
-resolves only when a deployer names the provider — by `.bind` or by the
-link's `defaults` — and the body reads `null` otherwise. Presence alone
-wires nothing, so adding a floe to a link never silently changes another
-floe's output. The arity, not a second kind of hole.
+resolves only when a deployer names the provider, by `.bind` or by the
+link's `defaults`, and the body reads `null` otherwise. Presence alone wires
+nothing, so adding a floe to a link cannot change another floe's output
+behind your back. An arity rather than a second kind of hole.
 
 **Compatibility**: Whether a provider's signature answers a requirer's. The
 provider's shape must be a width-supertype of the requirer's: every field
 the requirer declares is present and agrees, and extra fields on the
 provider are what sealing drops. Checked from headers, before anything
 evaluates. A concrete value satisfies a requirer that declared it deferred;
-the reverse is refused. This is also the rule for signature evolution —
-adding a field is compatible, removing or retyping one is not — which is why
-there is no version number. An emitted signature has no requirer, so nothing
-checks two floes that emit one name against each other, deliberately.
+the reverse is refused. This is also the rule for signature evolution, where
+adding a field is compatible and removing or retyping one is not, which is
+why there is no version number. An emitted signature has no requirer, so by
+design nothing checks two floes that emit one name against each other.
 _Avoid_: structural typing, subsumption.
 
 **Provide**: What a floe answers, checked and restricted to its signature on
@@ -93,28 +94,28 @@ concerns; concerns with one answer stay plain holes. _Avoid_: facet,
 contribution slot, aggregate. It is not a separate mechanism and should not
 get a separate word.
 
-**Deferred value**: A value that does not exist until after apply — a
+**Deferred value**: A value that does not exist until after apply: a
 generated secret, an allocated address, a CA fingerprint. Typed
 `T.deferred <inner>`, which says _when_ it exists and nothing about where.
 Reading one where a concrete value is required is an error at eval naming
-the floe it came from. The word is the programming-language one — a deferred
-evaluation you can reference and have type-checked — rather than a
+the floe it came from. The word is the programming-language one, a deferred
+evaluation you can reference and have type-checked, rather than a
 deployment-domain one. _Avoid_: runtime, lazy, unknown, promise.
 
 **Retrieval signature**: An ordinary signature describing _where_ a deferred
-value will be readable once it exists — a Secret and a key, a file and a
+value will be readable once it exists: a Secret and a key, a file and a
 path. **A retrieval signature says where a value will be readable; a backend
-implements how.** Declared by the provider, because the provider is what
+implements how.** The provider declares it, because the provider is what
 creates the value, which is why one signature can be answered with a Secret
-in Kubernetes and a file on NixOS. _Avoid_: mechanism — that is the
-backend's implementation, which core deliberately never learns.
+in Kubernetes and a file on NixOS. _Avoid_: mechanism, which is the
+backend's implementation and something core never learns.
 
 **Deferred token**: What a deferred value evaluates to: its source unit, its
 retrieval signature's name, and a ref checked against that signature's
 shape. Core records it and never looks inside.
 
 **Deferred site**: A place a deferred token reached a floe's _output_, as
-`{ unit; out; at; token; }` — a complete instruction to read one value and
+`{ unit; out; at; token; }`, a complete instruction to read one value and
 write it at one path. Every site in a link is `link.deferredSites`; the
 distinct retrievals a backend must implement are `link.deferredRetrievals`.
 A provide carrying a token is not a site: only output is something a backend
@@ -130,8 +131,8 @@ for a cache key nor serialised.
 **Derived field**: A field its provider computed by folding a collection.
 The linker withholds it from any peer that contributes to that same
 collection, because reading it there would be a cycle through the fold.
-Marked per field, not per hole — the same hole is safe for every other field
-on it.
+Marked per field rather than per hole: the same hole is safe for its other
+fields.
 
 ### Linking
 
@@ -147,19 +148,20 @@ a floe does not know its peers' names.
 consumer, so adding a second provider of something does not break every
 consumer that has no opinion about which one it wants.
 
-**Cycle**: A group of units whose holes resolve to each other. Derived, not
-declared — the holes and provides are in the headers, so the linker knows
-every cycle before a body evaluates. A cycle stays legal, because laziness
-resolves it and the examples need it; naming it is what lets every unit
-outside one be evaluated alone. _Avoid_: recursion, knot.
+**Cycle**: A group of units whose holes resolve to each other. Derived
+rather than declared: the holes and provides are in the headers, so the
+linker knows every cycle before a body evaluates. A cycle stays legal,
+because laziness resolves it and the examples need it; naming it is what
+lets the linker evaluate every unit outside one alone. _Avoid_: recursion,
+knot.
 
 **Phase**: How many deploy edges deep a unit sits, derived from deferred
 tokens in output data. Nothing declares an ordering; nothing may.
 
 ### Output
 
-**Fragment**: One floe's contribution to an emitted signature — in the NixOS
-examples, a piece of `config` shaped like the namespace that floe owns.
+**Fragment**: One floe's contribution to an emitted signature, in the NixOS
+examples a piece of `config` shaped like the namespace that floe owns.
 
 **Adapter**: The function a consumer writes to turn a link's output into
 whatever its domain wants: NixOS modules, manifests, a plan. It lives with
@@ -168,7 +170,7 @@ the distribution, never in `lib/`.
 ### Domains
 
 **Distribution**: A catalogue of signatures and floes for one domain, plus
-whatever sugar suits it. The library ships none — it depends on nothing but
+whatever sugar suits it. The library ships none: it depends on nothing but
 `nixpkgs.lib` and knows no domain. Catallaxy is one; `examples/` holds two
 small ones.
 

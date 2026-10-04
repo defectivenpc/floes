@@ -10,10 +10,10 @@ floe.link     # resolve, seal, collect
 floe.T        # the data schemas a signature is built from
 ```
 
-A **distribution** supplies the rest: a catalogue of signatures — both the
-ones its floes exchange and the ones they emit — and whatever sugar suits
-its domain. [Catallaxy](https://github.com/defectivenpc/catallaxy) is one,
-for Kubernetes.
+A **distribution** supplies the rest: a catalogue of signatures (both the
+ones its floes exchange and the ones they emit) and whatever sugar suits its
+domain. [Catallaxy](https://github.com/defectivenpc/catallaxy) is one, for
+Kubernetes.
 
 ## `mkFloe`
 
@@ -23,33 +23,32 @@ mkFloe { name, summary, inputs ? {}, requires ? {}, optional ? {},
          body ? null, singleton ? false }
 ```
 
-| Argument    | Required | Type                   | Meaning                                               |
-| ----------- | -------- | ---------------------- | ----------------------------------------------------- |
-| `name`      | yes      | kebab-case string      | the floe's identity                                   |
-| `summary`   | yes      | string                 | one line saying what it installs                      |
-| `inputs`    | no       | attrset of `mkOption`s | what the deployer decides — native NixOS option types |
-| `requires`  | no       | attrset of signatures  | exactly one provider each                             |
-| `optional`  | no       | attrset of signatures  | zero or one; `null` when unwired                      |
-| `collects`  | no       | attrset of signatures  | every provider, keyed by unit; may be empty           |
-| `provides`  | no       | attrset of signatures  | what it offers back                                   |
-| `out`       | no       | attrset of signatures  | what it emits                                         |
-| `modules`   | no       | list of modules        | the body, with the module system's merge              |
-| `body`      | no       | function               | the body, as a plain function; no `evalModules`       |
-| `singleton` | no       | bool                   | whether two instances in one link is an error         |
+| Argument    | Required | Type                   | Meaning                                              |
+| ----------- | -------- | ---------------------- | ---------------------------------------------------- |
+| `name`      | yes      | kebab-case string      | the floe's identity                                  |
+| `summary`   | yes      | string                 | one line saying what it installs                     |
+| `inputs`    | no       | attrset of `mkOption`s | what the deployer decides; native NixOS option types |
+| `requires`  | no       | attrset of signatures  | exactly one provider each                            |
+| `optional`  | no       | attrset of signatures  | zero or one; `null` when unwired                     |
+| `collects`  | no       | attrset of signatures  | every provider, keyed by unit; may be empty          |
+| `provides`  | no       | attrset of signatures  | what it offers back                                  |
+| `out`       | no       | attrset of signatures  | what it emits                                        |
+| `modules`   | no       | list of modules        | the body, with the module system's merge             |
+| `body`      | no       | function               | the body, as a plain function; no `evalModules`      |
+| `singleton` | no       | bool                   | whether two instances in one link is an error        |
 
-The pattern is **closed**: an unknown key is an error. `summary` is
-defaulted to `null` in the pattern and refused explicitly rather than left
-out of it, so the pattern stays closed _and_ the author gets a message
-saying what to write — Nix's own "called without required argument" says
-neither.
+The pattern is **closed**: an unknown key is an error. `summary` defaults to
+`null` in the pattern and `mkFloe` refuses it by hand rather than leaving it
+out, so the pattern stays closed _and_ the author gets a message saying what
+to write. Nix's own "called without required argument" says neither.
 
 Three arities. The arity is a property of the hole rather than of the
 signature, so the same signature can be exactly-one for one floe and
 collected by another.
 
-`collects` is the fan-in one. An earlier fan-in was removed for two reasons:
-it carried no ordering, and it implied only the floe installing a capability
-could render resources using it — which is not how Kubernetes works, since a
+`collects` is the fan-in one. An earlier fan-in came out for two reasons: it
+carried no ordering, and it implied only the floe installing a capability
+could render resources using it, which is not how Kubernetes works, since a
 registered CRD is a primitive anyone may use. A collection carries one eval
 edge per contributor, which answers the first. The second still holds, so
 where a runtime aggregator exists a floe ships a constructor and the
@@ -57,7 +56,8 @@ consumer emits the resource into its own bundle.
 
 A binding on a collected hole is an error rather than a no-op. A
 collection's arity is every provider in the link, so there is nothing for a
-binding to choose — and one written there used to be silently ignored.
+binding to choose, and `link` used to ignore one written there without a
+word.
 
 ### `optional`
 
@@ -79,38 +79,37 @@ body = { requires, ... }: {
 ```
 
 **It resolves only when a deployer names the provider**, by `.bind` or by
-the link's `defaults`. A provider merely being present wires nothing, and a
-link holding an unnamed provider for an optional hole is an error naming the
-candidate. That is deliberate and it is the whole difference from an
-`enable` flag: adding a floe to a link can never silently change another
-floe's output. `requires` gets the same property for free by erroring on a
+the link's `defaults`. A provider being present wires nothing, and a link
+holding an unnamed provider for an optional hole is an error naming the
+candidate. That is the whole difference from an `enable` flag, and it is the
+point: adding a floe to a link cannot change another floe's output behind
+your back. `requires` gets the same property for free by erroring on a
 second provider; this is the version of it for a hole that may be absent.
 
-The cost is a line per optional hole a deployer actually wants wired, which
-`defaults` pays once for a whole link rather than once per consumer — eleven
-consumer-holes collapsed to four entries when catallaxy was ported.
+The cost is a line per optional hole a deployer wants wired, which
+`defaults` pays once for a whole link rather than once per consumer: porting
+catallaxy collapsed eleven consumer-holes to four entries.
 [ADR 0009](adr/0009-an-optional-hole-resolves-only-when-named.md).
 
 ### `singleton`
 
-A floe whose body writes fixed paths — `services.nginx`,
-`networking.firewall` — cannot be instantiated twice. Both instances emit
-the same paths, and _identical_ values merge without complaint wherever that
+A floe whose body writes fixed paths (`services.nginx`,
+`networking.firewall`) cannot be instantiated twice. Both instances emit the
+same paths, and _identical_ values merge without complaint wherever that
 output lands, so the deployer gets one of the thing and believes they have
 two. Nothing downstream can catch it; the values agree. `singleton = true`
 makes the linker refuse the second instance, naming both.
 
 It is the author's to declare, because only the author knows whether the
-body keys its output by `config.floe.name`. A floe that does key by it — see
-`examples/nixos/postgres.nix`, which emits
-`systemd.services.postgres-<unit>` — leaves `singleton` alone and can be
-instantiated freely. That is the one thing floe gives NixOS that its own
-module system cannot express at all, so the declaration is worth reading as
-"this floe gave that up, deliberately".
+body keys its output by `config.floe.name`. A floe that does key by it
+leaves `singleton` alone and can be instantiated more than once;
+`examples/nixos/postgres.nix` emits `systemd.services.postgres-<unit>`. That
+is the one thing floe gives NixOS that its own module system cannot express,
+so read the declaration as "this floe gave that up on purpose".
 
-Conflicting values are caught by whatever consumes the output; a NixOS
-adapter gets the module system's own conflict error. This is only for the
-case where they agree.
+Whatever consumes the output catches conflicting values; a NixOS adapter
+gets the module system's own conflict error. This is only for the case where
+they agree.
 
 ### Saying which provider
 
@@ -136,16 +135,16 @@ floe.link {
 }
 ```
 
-Applied only where a unit gave no `.bind` of its own — so a hole nobody has
-an opinion about resolves, and ambiguity nobody decided is still an error. A
-default naming a unit that provides nothing here is ignored rather than
-refused, because it may be a default for a signature this particular link
-does not use.
+Applied only where a unit gave no `.bind` of its own, so a hole no consumer
+has an opinion about resolves, and an ambiguity no one resolved is still an
+error. `link` ignores a default naming a unit that provides nothing here
+rather than refusing it, because it may be a default for a signature this
+link does not use.
 
 ### What the body sees
 
-Two forms, and the linker cannot tell them apart — `evalFloe` normalises
-both to `{ provides, out }`.
+Two forms, and the linker cannot tell them apart: `evalFloe` normalises both
+to `{ provides, out }`.
 
 **`body`**, a plain function, for a floe that does not need the module
 system's merge. That is most of them, and it costs about 30% less:
@@ -159,7 +158,7 @@ body =
   };
 ```
 
-`floe` carries `floe.name` — the link's name for this instance — and
+`floe` carries `floe.name`, the link's name for this instance, and
 `floe.mkDeferred`. A floe that can be instantiated twice must key its output
 by `floe.name`; see `singleton` above.
 
@@ -198,45 +197,45 @@ mkSig { name, canonicalName, description, fields }
 
 ### Compatibility
 
-Resolution keys on `name`, a bare string, so two definitions of one name — a
+Resolution keys on `name`, a bare string, so two definitions of one name (a
 third-party floe pinning an older copy, two distributions shipping the same
-concept — both answer the same holes. `link` checks that the provider's
+concept) both answer the same holes. `link` checks that the provider's
 fields **answer** the requirer's before anything evaluates: the provider
 must be a width-supertype, every field the requirer declared present and
 compatible, extras being what sealing drops.
 
 Without it the link succeeded and the consumer died on Nix's
 `attribute 'port' missing`, several frames away, naming no floe, no field
-and no provider — and not catchable by `tryEval`.
+and no provider, and not catchable by `tryEval`.
 
 Variance is ordinary covariance, with one asymmetry: a concrete provider
 answers a requirer that declared the field `T.deferred`, because such a
 requirer handles both, and the reverse is refused. Closed sets run the other
-way — a provider's `T.enum` values and `T.taggedUnion` variants must be a
+way: a provider's `T.enum` values and `T.taggedUnion` variants must be a
 _subset_ of the requirer's. A refinement answers what it refines, so a
 `T.dnsName` satisfies a `T.str`.
 
 This is also the signature-evolution rule, which is why there is no version
 field: **adding** a field to a signature is compatible with every existing
 requirer, removing or retyping one is not, and the error names the field. An
-emitted signature has no requirer, so co-emitters of one `out` name are
-never compared — they must be free to differ.
+emitted signature has no requirer, so nothing compares co-emitters of one
+`out` name: they must be free to differ.
 [ADR 0007](adr/0007-a-provider-must-answer-the-requirers-signature.md).
 
 One constructor for everything a floe commits to: a value it exchanges with
 a peer (`requires`, `collects`, `provides`) and a product it emits (`out`).
 There used to be a second, `mkOutputKind`, and it was the same record with a
-different word on it — sealing built a record out of a signature's fields,
-which is exactly what a kind's schema was.
+different word on it: sealing built a record out of a signature's fields,
+which is what a kind's schema was.
 
-`fields` is usually an attrset of `T`s, which is what a signature is and
+`fields` is most often an attrset of `T`s, which is what a signature is and
 what the ML and mixin vocabulary calls it:
 
 ```nix
 fields = { host = T.str; port = T.port; };
 ```
 
-A signature with nothing worth naming — a rendered manifest — passes a bare
+A signature with nothing worth naming, a rendered manifest, passes a bare
 `T` in the same place, and one constructor serves both:
 
 ```nix
@@ -250,7 +249,7 @@ about `fields` says a direction: a signature is neither input nor output,
 and the surface it sits on is what gives it one.
 
 `canonicalName`, `description` and `summary` are all required, and all three
-throw explicitly rather than being bare pattern arguments —
+throw by hand rather than sitting as bare pattern arguments:
 `builtins.tryEval` cannot catch "called without required argument", so the
 requirement would otherwise be untestable.
 
@@ -259,10 +258,10 @@ sees, and before it, `provides.operator` bound four different signatures.
 `link` enforces the direction that matters: **no single name may mean two
 different signatures**, across every surface of every floe in the link.
 
-Not the reverse. A floe may hold two holes on one signature — a primary and
-a replica database — so a signature is not pinned to one name. The
-consequence is that two signatures wanting the same canonical name cannot
-both have it, and renaming one is the intended answer.
+Not the reverse. A floe may hold two holes on one signature, a primary and a
+replica database, so a signature is not pinned to one name. The consequence
+is that two signatures wanting the same canonical name cannot both have it,
+and renaming one is the intended answer.
 
 **Resolution keys on `name`, not on identity.** That is why there are three
 separate `*_OPERATOR` signatures rather than one: a single `OPERATOR` would
@@ -271,12 +270,12 @@ both would fail to link. The nominal distinction _is_ the mechanism.
 
 ## The type language, `T`
 
-**Why there are two.** A value a deployer writes — a floe input — is
-described by a native NixOS option type. A value a floe _commits to_ — a
-signature's fields, whether they cross to a peer or are emitted — is
-described by a floe data schema, `T`. That is the whole rule, and both
-halves are enforced where they are used: `mkFloe` refuses a `T` in `inputs`,
-and `checkValue` refuses a `lib.types` in anything a signature describes.
+**Why there are two.** A native NixOS option type describes a value a
+deployer writes, a floe input. A floe data schema, `T`, describes a value a
+floe _commits to_: a signature's fields, whether they cross to a peer or get
+emitted. That is the whole rule, and each half holds where it is used:
+`mkFloe` refuses a `T` in `inputs`, and `checkValue` refuses a `lib.types`
+in anything a signature describes.
 
 `lib.types` cannot do the signature side, for two reasons:
 
@@ -287,41 +286,42 @@ and `checkValue` refuses a `lib.types` in anything a signature describes.
 - **Sealing drops, it does not error.** A provider may compute more than its
   signature promises; `T.record` returns only the declared fields.
   `lib.types.submodule` refuses the whole value instead.
-- **A NixOS type holds functions.** `merge`, `check`, `substSubModules` — so
+- **A NixOS type holds functions.** `merge`, `check`, `substSubModules`, so
   it cannot be serialized, and a schema here has to be inert data.
 
 **`T` is not the faster one.** Worth knowing, because the split above might
 suggest otherwise: `T.checkValue` costs about _twice_ what `lib.types.check`
 does for a scalar, since it chains `if ty.tag == …` comparisons where a
-NixOS type dispatches straight to its predicate. It does not matter — a
-signature is checked once per provide per link, not once per value per
-instance, and a twenty-nine-floe link is 37 ms — but `T` exists for what it
-can express, not for speed. `docs/adr/0004` has the measurements.
+NixOS type dispatches straight to its predicate. That does not matter,
+because `link` checks a signature once per provide per link rather than once
+per value per instance, and a twenty-nine-floe link is 37 ms. `T` exists for
+what it can express rather than for speed. `docs/adr/0004` has the
+measurements.
 
-| Constructor                                   | Is                                                                      |
-| --------------------------------------------- | ----------------------------------------------------------------------- |
-| `T.str`, `T.int`, `T.bool`, `T.port`          | scalars                                                                 |
-| `T.url`, `T.dnsName`                          | scalars with a pattern                                                  |
-| `T.package`                                   | a derivation or the store path it coerces to                            |
-| `T.enum`, `T.nullOr`, `T.listOf`, `T.attrsOf` | the usual combinators                                                   |
-| `T.record`                                    | a fixed set of named fields                                             |
-| `T.taggedUnion`                               | externally tagged; matches serde's default                              |
-| `T.deferred`                                  | not known until after apply — the linker derives a deploy edge from one |
-| `T.derivedFrom`                               | folded out of a collection — the linker withholds it from contributors  |
-| `T.moduleType`                                | a NixOS type, for a field that is a schema                              |
+| Constructor                                   | Is                                                                     |
+| --------------------------------------------- | ---------------------------------------------------------------------- |
+| `T.str`, `T.int`, `T.bool`, `T.port`          | scalars                                                                |
+| `T.url`, `T.dnsName`                          | scalars with a pattern                                                 |
+| `T.package`                                   | a derivation or the store path it coerces to                           |
+| `T.enum`, `T.nullOr`, `T.listOf`, `T.attrsOf` | the usual combinators                                                  |
+| `T.record`                                    | a fixed set of named fields                                            |
+| `T.taggedUnion`                               | externally tagged; matches serde's default                             |
+| `T.deferred`                                  | not known until after apply; the linker derives a deploy edge from one |
+| `T.derivedFrom`                               | folded out of a collection; the linker withholds it from contributors  |
+| `T.moduleType`                                | a NixOS type, for a field that is a schema                             |
 
 A distribution may add its own. Catallaxy's `k8sName` lives in its prelude
 rather than here, because it was the one thing making the claim that this
-library knows nothing about Kubernetes false. What a floe actually gets is
-the prelude: this plus the distribution's own.
+library knows nothing about Kubernetes false. What a floe gets is the
+prelude: this plus the distribution's own.
 
 ### `T.package`, and where a package set does not go
 
 `T.package` is how something built crosses a floe boundary, and it exists
 because the two alternatives both fail: `T.str` refuses a derivation, and
-`T.any` admits one and then meets the token scan — which used to walk a
+`T.any` admits one and then meets the token scan, which used to walk a
 derivation's self-referential `out` until the stack ran out, a crash
-`tryEval` cannot even catch. Every NixOS module that writes
+`tryEval` cannot catch. Any NixOS module that writes
 `environment.systemPackages` puts one in `out`.
 
 The package **set** is a different thing and is not a signature. Which
@@ -333,7 +333,7 @@ inputs.postgresql = lib.mkOption { type = lib.types.package; };
 ```
 
 Not `inputs.pkgs`. A package set can be neither hashed for a cache key nor
-serialised into the IR, and one package is both — a derivation hashes as its
+serialised into the IR, and one package is both: a derivation hashes as its
 `drvPath` and `toJSON`s as its `outPath`. The cost is that a deployer writes
 `pkgs.postgresql` per floe that needs it, and `defaults` cannot help because
 packages are inputs rather than signatures.
@@ -342,15 +342,15 @@ packages are inputs rather than signatures.
 ### `T.deferred`, and retrieval signatures
 
 ```nix
-# in the signature — *when*, and nothing else
+# in the signature: *when*, and nothing else
 password = T.deferred T.str;
 
-# in the provider's body — *where*
+# in the provider's body: *where*
 password = floe.mkDeferred FILE_REF { path = "/run/secrets/pw"; mode = "firstLine"; };
 ```
 
 A deferred value does not exist until after apply. `T.deferred` says so, and
-`checkValue` refuses the token anywhere a concrete value is declared — which
+`checkValue` refuses the token anywhere a concrete value is declared. That
 is the static safety: a floe cannot read a value that is not there yet, and
 finds out at `nix eval` rather than from a manifest containing an attrset.
 
@@ -373,7 +373,7 @@ retrieval signature says where a value will be readable; a backend
 implements how.**
 
 The provider declares it and not the signature's field, because the provider
-is what creates the value — cert-manager knows it writes a Secret, postgres
+is what creates the value: cert-manager knows it writes a Secret, postgres
 knows it writes a file. So one `DATABASE.password` survives both domains,
 which it could not if the retrieval were welded to the type. `examples/` has
 one of each.
@@ -381,7 +381,7 @@ one of each.
 #### What a backend reads
 
 ```nix
-link.deferredSites       # [{ unit; out; at; token; }] — read this, write it there
+link.deferredSites       # [{ unit; out; at; token; }]: read this, write it there
 link.deferredRetrievals  # the distinct retrievals this link needs resolvers for
 ```
 
@@ -395,10 +395,10 @@ failing halfway. That check cannot live in core: only the backend knows what
 it can resolve, so a list of resolvers in the link would be a claim core
 could not verify.
 
-Core ships **no** substitution function, deliberately. A ConfigMap, a
-Secret, an annotation, a file and an HTTP lookup are five mechanisms for one
-job, and several may be right for one value depending on whether it is a
-secret. Choosing one in core would choose for every distribution at once.
+Core ships **no** substitution function, by design. A ConfigMap, a Secret,
+an annotation, a file and an HTTP lookup are five mechanisms for one job,
+and several may be right for one value depending on whether it is a secret.
+Choosing one in core would choose for every distribution at once.
 `tests/examples.nix` has a worked substitution, in a test rather than the
 library, as a demonstration that `deferredSites` is sufficient to write one.
 
@@ -417,27 +417,26 @@ Marks a field its provider computed by folding its `collects` of
 and then reads this field closes a loop: computing its contribution needs
 the fold, and the fold needs its contribution.
 
-So `link` refuses that one field to exactly those peers, before anything
-evaluates — both facts it needs, who provides `PORT_CLAIM` and who collects
-it, are in the headers. The error names both floes, the collection and the
-field.
+So `link` refuses that one field to those peers, before anything evaluates:
+both facts it needs, who provides `PORT_CLAIM` and who collects it, are in
+the headers. The error names both floes, the collection and the field.
 
-It is **per field, not per hole**, and that is the point. A floe may require
-the same hole from the same provider in the same cycle and be entirely fine,
+It is **per field rather than per hole**, and that is the point. A floe may
+require the same hole from the same provider in the same cycle and be fine,
 as long as it reads a field the fold did not produce. Without this the
 failure is `infinite recursion encountered`, naming nothing, and
-`builtins.tryEval` cannot even catch it — so it could not be tested and
-could not be wrapped in a better message. `examples/nixos/broken.nix` has
-the case both ways round.
+`builtins.tryEval` cannot catch it, so nothing could test it and nothing
+could wrap it in a better message. `examples/nixos/broken.nix` has the case
+both ways round.
 
 Mark every field you compute from a `collects`.
 
 ## Distribution sugar
 
-A distribution will usually wrap `mkFloe` with its own defaults —
-catallaxy's `mkComponentFloe` pre-fills the cluster hole and its component
-output signature, merged over rather than replacing, so a floe needing a
-second cluster hole can still name one.
+A distribution tends to wrap `mkFloe` with its own defaults. Catallaxy's
+`mkComponentFloe` pre-fills the cluster hole and its component output
+signature, merged over rather than replacing, so a floe needing a second
+cluster hole can still name one.
 
 `examples/nixos/kinds.nix` is the small version: one helper that builds the
 `nixos.config` signature with the fields the calling floe supplies, so every
@@ -447,13 +446,12 @@ floe narrows its own output without restating the name.
 
 Build a stub floe per required signature and link the result, so a suite
 exercises the real linker rather than an approximation. `tests/support` is a
-small worked distribution doing exactly that; catallaxy's
-`floes/tests/support.nix` is the same idea at scale, enforced one suite per
-floe.
+small worked distribution doing that; catallaxy's `floes/tests/support.nix`
+is the same idea at scale, enforced one suite per floe.
 
-RFC 0001 proposed a `checkFloe` that would check a floe in isolation. It was
-never built, and this replaced it: checking against the real linker catches
-what an isolated approximation cannot.
+RFC 0001 proposed a `checkFloe` that would check a floe in isolation. That
+never happened, and this replaced it: checking against the real linker
+catches what an isolated approximation cannot.
 
 ### `narrows`
 
@@ -464,7 +462,7 @@ floe.narrows full shared   # [] when `shared` promises no more than `full`
 What an export signature is to the provide it re-exports, and what a
 distribution's "this may cross a boundary" table holds. The same relation
 compatibility decides between a requirer and a provider, pointed inward, and
-`link` checks it for every `exports` entry — an export promising _more_ than
+`link` checks it for every `exports` entry: an export promising _more_ than
 what it re-exports is a field a peer can ask for and nothing can answer.
 
 Nothing checks that a provider of a signature **behaves** like one; see RFC
@@ -473,7 +471,7 @@ Nothing checks that a provider of a signature **behaves** like one; see RFC
 ## Related
 
 - [RFC 0001](rfcs/0001-floes.md): the design, with a status block naming
-  what shipped and what was abandoned.
+  what shipped and what came out.
 - [The Model](model.md): where the words come from.
 - Catallaxy's
   [Write a Floe](https://github.com/defectivenpc/catallaxy/blob/main/docs/book/src/using/writing-a-floe.md)

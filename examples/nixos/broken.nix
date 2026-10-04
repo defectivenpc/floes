@@ -77,7 +77,7 @@ in
   #
   # This used to be the worst error in the example and is now an ordinary one.
   # The token was coerced before anything typed saw it, so the report was Nix's
-  # — "cannot coerce a set to a string: { __deferred = true; ... }" — with no
+  # "cannot coerce a set to a string: { __deferred = true; ... }", with no
   # path, no floe named, and no way for library code to improve it, because
   # nothing runs after a coercion failure. It also escaped `tryEval`, so no
   # test could hold it and a shell script asserted on the exit status instead.

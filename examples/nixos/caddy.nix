@@ -3,7 +3,7 @@
 # It exists so the example can show what happens when two floes answer one
 # signature: `requires` is exactly-one, so webapp's hole becomes ambiguous and
 # the link fails naming both. The deployer resolves it, because a floe author
-# cannot — nginx has never heard of caddy.
+# cannot: nginx has never heard of caddy.
 #
 # It claims no ports on purpose. A real caddy would claim 80 and 443 and
 # collide with nginx in `networking`, and then the link would have two
@@ -22,7 +22,7 @@ floe.mkFloe {
   name = "caddy";
   summary = "Fixture: a second reverse proxy, to make a hole ambiguous.";
 
-  # Writes fixed paths, so two of it would silently merge into one.
+  # Writes fixed paths, so two of it would merge into one without a word.
   singleton = true;
 
   requires.network = sigs.NETWORK;

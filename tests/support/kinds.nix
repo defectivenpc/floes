@@ -1,5 +1,5 @@
 # What the example floes emit. Signatures, like everything else a floe commits
-# to — there used to be a separate `mkOutputKind` for this and it was the same
+# to. There used to be a separate `mkOutputKind` for this and it was the same
 # record with a different word on it.
 { floe }:
 

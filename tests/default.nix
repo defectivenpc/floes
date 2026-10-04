@@ -21,7 +21,7 @@ let
   };
 
   # A consumer echoes back what its hole resolved to, so a silent
-  # non-resolution fails the test rather than passing it quietly.
+  # non-resolution fails the test rather than passing it with no complaint.
   ECHO = floe.mkSig {
     name = "ECHO";
     canonicalName = "echo";
@@ -383,7 +383,7 @@ in
   # An eval edge says A needed B's config to render, one per contributor for a
   # collection. Two pairs are cycles laziness carries; the deploy edge is
   # derived from a deferred token the link-time scan found in `out.k8s`, and is
-  # labelled with the *retrieval* — which says what a backend must implement to
+  # labelled with the *retrieval*, which says what a backend must implement to
   # satisfy it.
   testEdges = {
     expr = edges;
@@ -436,7 +436,7 @@ in
     };
   };
 
-  # Two providers is an error for an unbound hole — the coherence rule the
+  # Two providers is an error for an unbound hole, the coherence rule the
   # whole model rests on.
   testTwoProvidersWithoutABindingIsRefused = {
     expr = fails (twoIssuers { binding = null; }).provides;
@@ -469,7 +469,7 @@ in
     expected = true;
   };
 
-  # Where an exactly-one hole is an error, a collection is simply empty: the
+  # Where an exactly-one hole is an error, a collection is empty: the
   # collector is excluded, and nothing else here provides SELF. An empty
   # collection is legal, which is what separates it from the other arities.
   testACollectionExcludesTheCollectorAndMayBeEmpty = {
@@ -668,8 +668,8 @@ in
   };
 
   # And a bare `T` goes in the same place, for a signature with nothing worth
-  # naming — a rendered manifest. Both branches are exercised by the examples
-  # too, and this is the one that says which is which.
+  # naming, a rendered manifest. The examples exercise both branches too, and
+  # this is the one that says which is which.
   testFieldsAlsoTakesABareType = {
     expr =
       let
@@ -775,8 +775,8 @@ in
     };
   };
 
-  # And it still refuses. Lazily, per input, the way NixOS does — which is why
-  # this forces the value rather than just instantiating.
+  # And it still refuses. Lazily, per input, the way NixOS does, which is why
+  # this forces the value rather than only instantiating.
   testABadlyTypedInputIsRefusedWhenRead = {
     expr =
       let
@@ -838,7 +838,7 @@ in
     expected = true;
   };
 
-  # The link result carries each unit's input declarations — type, default
+  # The link result carries each unit's input declarations: type, default
   # and description. The declaration, not the supplied value.
   testTheLinkResultCarriesInputDocs = {
     expr = deployment.inputs.grafana.size or null;
@@ -850,7 +850,7 @@ in
   };
 
   # A required input has no default, and the doc says so rather than
-  # inventing one — which is the difference a deployer needs to see.
+  # inventing one, which is the difference a deployer needs to see.
   testARequiredInputHasNoDefault = {
     expr = deployment.inputs.grafana.adminUser.default or "MISSING";
     expected = null;
@@ -860,7 +860,7 @@ in
   #
   # The failure these exist for: two definitions of one signature name linked
   # cleanly, and the consumer died several frames later on Nix's
-  # `attribute 'port' missing` — no floe named, no field, not catchable.
+  # `attribute 'port' missing`, with no floe named, no field, not catchable.
 
   testAProviderMissingAFieldTheRequirerDeclaresIsRefused = {
     expr = fails (skewed {
@@ -907,7 +907,7 @@ in
 
   # The one asymmetry. A value that does not exist until after apply cannot
   # answer a field something reads at eval, and saying so from the headers names
-  # both sides — where the same mistake found at read time named neither.
+  # both sides, where the same mistake found at read time named neither.
   testADeferredProviderCannotAnswerAConcreteRequirer = {
     expr = fails (skewed {
       provided = T.record { host = T.deferred T.str; };
@@ -964,8 +964,8 @@ in
     expected = "none";
   };
 
-  # The asymmetry with `requires`, and the reason it is here: a provider merely
-  # being present wires nothing, so adding a floe to a link can never silently
+  # The asymmetry with `requires`, and the reason it is here: a provider being
+  # present wires nothing, so adding a floe to a link cannot, behind your back,
   # change another floe's output. Erroring rather than no-opping, because a
   # deployer who added the provider and got nothing needs to be told why.
   testAnOptionalHoleWithAnUnnamedProviderIsRefused = {
@@ -994,7 +994,7 @@ in
     expected = "internal";
   };
 
-  # An unwired hole read nothing, so it is not an edge — which is what keeps it
+  # An unwired hole read nothing, so it is not an edge, which is what keeps it
   # out of the deploy ordering as well.
   testAnUnwiredOptionalHoleIsNotAnEdge = {
     expr = (optionalLink { withProvider = false; }).graph.edges;
@@ -1053,9 +1053,9 @@ in
     expected = true;
   };
 
-  # A binding on a collected hole was silently ignored — `wiringAll` takes every
-  # provider and never consulted one — so a deployer who wrote it believed it
-  # did something. A collection has nothing to choose.
+  # A binding on a collected hole went ignored without a word, because
+  # `wiringAll` takes every provider and never consulted one, so a deployer who
+  # wrote it believed it did something. A collection has nothing to choose.
   testABindingOnACollectedHoleIsRefused = {
     expr = fails (
       floe.link {
@@ -1112,9 +1112,9 @@ in
   };
 
   # The crash this closes: a derivation is an attrset whose `out` is itself, so
-  # the token scan walked it until the stack ran out — and a stack overflow is
-  # not catchable, so `tryEval` could not even contain it. Every NixOS module
-  # that writes `environment.systemPackages` puts one here.
+  # the token scan walked it until the stack ran out, and a stack overflow is
+  # not catchable, so `tryEval` could not contain it. Any NixOS module that
+  # writes `environment.systemPackages` puts one here.
   testADerivationInOutputDoesNotBreakTheTokenScan = {
     expr =
       let

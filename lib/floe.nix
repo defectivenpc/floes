@@ -25,21 +25,21 @@ rec {
   # A value that does not exist until after apply, and a declaration of where it
   # will be readable once it does. The *provider* says where, because it is the
   # thing that creates the value: cert-manager knows it writes a Secret, postgres
-  # knows it writes a file. So one signature — `DATABASE.password` — survives two
+  # knows it writes a file. So one signature, `DATABASE.password`, survives two
   # domains with two mechanisms, which it could not if the retrieval were welded
   # to the field's type.
   #
   # Core checks `ref` against the retrieval signature's shape and records the
   # signature's name. It never looks inside, and never learns what a Secret is:
   # reading the value is a backend's job, and there may be many backends for one
-  # retrieval — a ConfigMap, a Secret, an annotation, a file, an HTTP lookup.
-  # `link.deferredSites` is what a backend reads to find the work.
+  # retrieval, such as a ConfigMap, a Secret, an annotation, a file or an HTTP
+  # lookup. `link.deferredSites` is what a backend reads to find the work.
   mkDeferredFor =
     instName: sig: ref:
     if !(sig.__floeSig or false) then
       throw (
-        "floe '${instName}': `mkDeferred` takes a retrieval signature and a ref — "
-        + "`mkDeferred SECRET_REF { namespace = …; name = …; }`. The signature says "
+        "floe '${instName}': `mkDeferred` takes a retrieval signature and a ref, "
+        + "as `mkDeferred SECRET_REF { namespace = …; name = …; }`. The signature says "
         + "where the value will be readable; a backend implements how to read it."
       )
     else
@@ -51,23 +51,23 @@ rec {
 
         # Interpolating a token used to be Nix's "cannot coerce a set to a
         # string", which names no floe, arrives before anything typed sees the
-        # value, and escapes `builtins.tryEval` — so whether the mistake was
-        # caught at all depended on who reported it, and this one could not even
-        # be tested. A `__toString` that throws makes it floe's own error and
+        # value, and escapes `builtins.tryEval`, so whether a test could catch
+        # the mistake depended on who reported it, and nothing could test this
+        # one. A `__toString` that throws makes it floe's own error and
         # testable, which is RFC 0001's open question 1 answered: a deferred
         # value does not propagate through interpolation, it refuses.
         #
-        # The cost, deliberately taken: `builtins.toJSON` prefers `__toString`,
+        # The cost, taken knowingly: `builtins.toJSON` prefers `__toString`,
         # so a token reaching the serialised IR now throws too. That is the same
-        # correct refusal — a token in serialised output means a backend is about
-        # to ship a placeholder to the world — and the IR serialises tokens
+        # correct refusal, since a token in serialised output means a backend is
+        # about to ship a placeholder to the world, and the IR serialises tokens
         # through `link.deferredSites`, which intends to.
         __toString =
           _:
           throw (
             "floe '${instName}': a deferred value was interpolated into a string. It "
-            + "does not exist until after apply — it will be readable via "
-            + "'${sig.name}' once '${instName}' has been applied — so there is "
+            + "does not exist until after apply. It will be readable via "
+            + "'${sig.name}' once '${instName}' has been applied, so there is "
             + "nothing to interpolate here. Read the concrete field beside it (a "
             + "path, a ref) and let a backend substitute the value, or declare the "
             + "field that holds this `T.deferred` too."
@@ -86,15 +86,15 @@ rec {
       # optional :: { Hole -> Signature }
       #
       # The third arity: zero or one. `requires` is exactly one and `collects`
-      # is every provider; this is the hole a floe can do without — grafana's
-      # OIDC, a collector's trace backend — and it is what NixOS spells as
+      # is every provider; this is the hole a floe can do without (grafana's
+      # OIDC, a collector's trace backend) and it is what NixOS spells as
       # `mkIf config.services.foo.enable`, which is everywhere in nixpkgs.
       #
       # It resolves only when a deployer names the provider, by `.bind` or by
       # the link's `defaults`. Presence alone wires nothing, so adding a floe to
-      # a link can never silently change another floe's output — the property
-      # `requires` gets for free by erroring on a second provider, and the one
-      # that makes `enable`-style conditionals frightening at scale.
+      # a link cannot change another floe's output behind your back: the
+      # property `requires` gets for free by erroring on a second provider, and
+      # the one that makes `enable`-style conditionals frightening at scale.
       #
       # Resolved values land in `requires` beside the exactly-one holes, as the
       # value or as `null`, because a body wanting "the thing if it is there"
@@ -104,8 +104,8 @@ rec {
       collects ? { },
       provides ? { },
       out ? { },
-      # A body is either `modules` — ordinary NixOS modules, for a floe that wants
-      # the module system's merge inside itself — or `body`, a plain function.
+      # A body is either `modules`, ordinary NixOS modules for a floe that wants
+      # the module system's merge inside itself, or `body`, a plain function.
       # Most floes never merge anything, and pay a whole `evalModules` for the
       # privilege; `body` is the same floe without it.
       #
@@ -123,13 +123,13 @@ rec {
       #
       # It is the author's to declare, because only the author knows whether the
       # body keys its output by `config.floe.name`. A floe that writes fixed
-      # paths — `services.nginx`, `networking.firewall` — cannot be instantiated
+      # paths (`services.nginx`, `networking.firewall`) cannot be instantiated
       # twice: both instances emit the same paths, and *identical* values merge
       # without complaint, so the deployer gets one of the thing and believes
       # they have two. Nothing downstream can catch that; the values agree.
       #
-      # Conflicting values are caught, by whatever consumes the output. This is
-      # for the case where they agree.
+      # Whatever consumes the output catches conflicting values. This is for
+      # the case where they agree.
       singleton ? false,
     }:
     let
@@ -147,7 +147,7 @@ rec {
         if body != null && modules != [ ] then
           throw (
             "floe '${name}': has both `body` and `modules`. They are two spellings of "
-            + "one thing — `body` is a plain function, `modules` is the NixOS module "
+            + "one thing: `body` is a plain function, `modules` is the NixOS module "
             + "system with its merge. Pick the one the floe needs."
           )
         else if body != null && !lib.isFunction body then
@@ -169,14 +169,14 @@ rec {
           throw (
             "floe '${name}': input(s) ${lib.concatStringsSep ", " floeTypedInputs} are "
             + "declared with `T`, the floe data schema. An input is what a deployer "
-            + "writes, so it takes a NixOS option type — `lib.types.str`, not `T.str`. "
+            + "writes, so it takes a NixOS option type: `lib.types.str`, not `T.str`. "
             + "`T` is for values that cross a floe boundary."
           );
 
       # checkInputs: validate and default-fill what a deployer passed.
       #
       # `lib.modules.mergeDefinitions` is the NixOS module system's own
-      # per-option machinery — the same code that checks `services.nginx.enable`,
+      # per-option machinery, the same code that checks `services.nginx.enable`,
       # asked about one option rather than a whole tree. It handles `mkIf`,
       # `mkMerge`, `mkOverride` and `mkOrder`, and delegates to `type.merge`,
       # which is what fills a submodule's nested defaults.
@@ -187,10 +187,10 @@ rec {
       # floes of fifteen inputs, with the same semantics. `bench/run.sh`.
       #
       # `mergeDefinitions` is exported from `lib.modules` under a blanket note
-      # that not everything in that list is a public interface. The risk is
-      # accepted, because the alternative is maintaining a worse copy of it —
-      # and `tests/default.nix` pins the three behaviours we rely on, so a
-      # nixpkgs bump that moves them fails the suite rather than a deploy.
+      # that not everything in that list is a public interface. We accept the
+      # risk, because the alternative is maintaining a worse copy of it, and
+      # `tests/default.nix` pins the three behaviours we rely on, so a nixpkgs
+      # bump that moves them fails the suite rather than a deploy.
       checkInputs =
         supplied:
         let
@@ -203,9 +203,9 @@ rec {
           undeclared = lib.subtractLists declared suppliedNames;
           unsupplied = lib.filter (n: !(supplied ? ${n}) && !(inputs.${n} ? default)) declared;
 
-          # Lazy: the values. NixOS is lazy here too — a badly-typed option that
-          # nothing reads does not fail a real system evaluation — and a floe
-          # author's mental model should be the one they already have.
+          # Lazy: the values. NixOS is lazy here too, since a badly-typed option
+          # that nothing reads does not fail a real system evaluation, and a
+          # floe author's mental model should be the one they already have.
           valueOf =
             n:
             let

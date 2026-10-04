@@ -7,9 +7,9 @@
 #
 #   nixos   the probe: fine-grained units, a namespace with an owner, services
 #           contributing to it, two databases on one host. Two links from one
-#           set of floes — five units to read, twenty-nine to measure.
+#           set of floes: five units to read, twenty-nine to measure.
 #   k8s     the contrast: coarse units, a resolution chain, loose output. The
-#           shape floe was originally designed against.
+#           shape floe's design started from.
 #
 # `wrapped/` is a third, and not a distribution: a spike answering "could floes
 # just wrap nixpkgs modules?". It is not imported here because it needs `pkgs`

@@ -1,6 +1,6 @@
 # Wrapping real nixpkgs modules
 
-A spike, kept because its answer is useful and not because anyone should
+A spike, here because its answer is useful and not because anyone should
 build on it. The question: could a floe host an existing nixpkgs service
 module unchanged, so adopting floe would not mean rewriting nixpkgs?
 
@@ -15,13 +15,13 @@ Not a flake check, and not optimised. See
 
 A real nixpkgs service module does evaluate inside a floe's isolated
 `evalModules`, behind a shim of about twenty-five declarations. nginx (1685
-lines), dnsmasq and prometheus each produce their genuine systemd unit, user
+lines), dnsmasq and prometheus each produce their real systemd unit, user
 and group. [`shim.nix`](shim.nix) is the whole of it.
 
-Two things learned about how:
+Two things it taught about how:
 
 **`types.anything`, never `types.raw`.** A `raw` catch-all captures
-`{ _type = "if"; … }` — the unmerged `mkIf` wrappers nixpkgs modules are
+`{ _type = "if"; … }`, the unmerged `mkIf` wrappers nixpkgs modules are
 written with. A shim built on `raw` appears to work and yields garbage.
 
 **Writes are generic; reads are not.** One catch-all serves any module that
@@ -30,7 +30,7 @@ choosing it is a semantic decision. postgresql reads
 `config.system.stateVersion`; sshd reads `config.programs.ssh.*`; both load
 fine and then fail when their output is forced.
 
-The audit works too, and immediately found something: nginx writes
+The audit works too, and found something: nginx writes
 `boot.kernelModules = [ "tls" ]`, a namespace a web server has no business
 owning.
 
@@ -46,9 +46,9 @@ would carry:
 | three wrapped modules    | 0.358 s    | 162 MB     |
 | **marginal, per module** | **~77 ms** | **~26 MB** |
 
-Against a hand-written floe at comparable weight — 0.34 ms and about 0.3 MB
-— that is roughly **200×**. At fifty enabled services it is a few seconds
-and over a gigabyte; the whole of `examples/nixos`, twenty-nine hand-written
+Against a hand-written floe at comparable weight, 0.34 ms and about 0.3 MB,
+that is roughly **200×**. At fifty enabled services it is a few seconds and
+over a gigabyte; the whole of `examples/nixos`, twenty-nine hand-written
 floes, adds 39 MB and no measurable time to a stock NixOS evaluation.
 
 Each floe re-declares its own shim and re-imports `misc/ids.nix`, so sharing
@@ -57,12 +57,12 @@ to stop here rather than optimise something already ruled out.
 
 ## The part worth keeping
 
-The reads a wrapped module makes are exactly its undeclared dependencies —
-the things that, in a floe, would be `inputs` or a signature. The discovery
-loop that produced `shim.nix` is therefore a way to **extract a nixpkgs
-module's implicit interface**: run it, and every read it fails on is a
-dependency nobody wrote down.
+The reads a wrapped module makes are its undeclared dependencies, the things
+that, in a floe, would be `inputs` or a signature. The discovery loop that
+produced `shim.nix` is therefore a way to **extract a nixpkgs module's
+implicit interface**: run it, and every read it fails on is a dependency
+nothing declares.
 
 That is a migration story, and a better one than wrapping. It does not need
-the module to run inside a floe at all — only to be interrogated about what
-it reaches for.
+the module to run inside a floe, only to answer questions about what it
+reaches for.

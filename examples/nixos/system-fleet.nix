@@ -11,7 +11,7 @@
 #   - `metrics` collects twenty SCRAPE_TARGETs; `nginx` collects twenty
 #     ROUTE_CLAIMs; `networking` collects six PORT_CLAIMs.
 #   - Three postgres instances answer DATABASE, so every consumer must say which
-#     it means. `deployerCost` counts those binds — that is the ceremony number,
+#     it means. `deployerCost` counts those binds: that is the ceremony number,
 #     not an opinion about it.
 #   - Twenty workloads and three databases coexist without one colliding option
 #     path, because every floe keys its output by the link's name for it.
@@ -25,8 +25,8 @@ let
     "archive"
   ];
 
-  # Spread the workloads across the databases, round robin. Deliberately
-  # adversarial for the `defaults` measurement: a real fleet usually has one
+  # Spread the workloads across the databases, round robin. Chosen to be
+  # adversarial for the `defaults` measurement: a real fleet tends to have one
   # dominant database and would see nearly every bind disappear, whereas this
   # spread keeps two thirds of them. The number in `deployerCost` is the
   # pessimistic one on purpose.

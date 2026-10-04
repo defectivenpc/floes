@@ -1,11 +1,11 @@
-# Postgres, and the thing stock NixOS cannot do at all: more than one of it.
+# Postgres, and the thing stock NixOS cannot do: more than one of it.
 #
 # `services.postgresql` is a singleton option path. Any floe that emits it is
-# single-instance no matter what the linker permits — two instances would write
+# single-instance no matter what the linker permits: two instances would write
 # the same path and NixOS would refuse the conflicting definitions. So a
-# genuinely multi-instance floe does not use that module. It emits its own
+# multi-instance floe does not use that module. It emits its own
 # systemd unit, its own user, its own group and its own tmpfiles rule, every one
-# of them keyed by `config.floe.name` — the name the *link* gave this instance.
+# of them keyed by `config.floe.name`, the name the *link* gave this instance.
 #
 # That is the real cost of multi-instance: this file is the nixpkgs postgresql
 # module's job, done again. It is also the whole benefit, and there is no
@@ -13,7 +13,7 @@
 #
 # Note which namespaces it writes and which it does not. It writes
 # `systemd.services.<unique>` and `users.users.<unique>` directly, and nothing
-# owns those — because an attrset keyed by a unique name is disjoint by
+# owns those, because an attrset keyed by a unique name is disjoint by
 # construction, so many writers cannot collide. It does *not* write
 # `networking.firewall`, because a port list merges by policy rather than by
 # key, and that is the kind of namespace that needs an owner.
@@ -46,7 +46,7 @@ floe.mkFloe {
 
   # The coordination this example exists for. Postgres cannot know its consumers
   # at author time, so it collects what they ask for and provisions one role, one
-  # database and one credential per claimant — at apply time, because a role
+  # database and one credential per claimant, at apply time, because a role
   # cannot be created before the server is running.
   collects.dbRole = sigs.DB_ROLE_CLAIM;
 
@@ -95,7 +95,7 @@ floe.mkFloe {
       dataDir = "/var/lib/${svc}";
       # In the state directory, not /run: a Postgres password has to survive a
       # reboot or the stored role no longer matches. It is also per-instance, so
-      # two instances never contend for one path — which `/run/secrets` shared
+      # two instances never contend for one path, which `/run/secrets` shared
       # between them would have done.
       superuserPasswordFile = "${dataDir}/superuser-password";
       credentialDir = "${dataDir}/credentials";
@@ -119,10 +119,10 @@ floe.mkFloe {
       );
 
       # A single-quoted SQL literal that survives the outer `sh -c '…'`. A literal
-      # quote in that context is `'\''` — closing the shell quote, escaping one,
-      # reopening. Writing `'${v}'` instead silently emits `PASSWORD SECRET`
-      # without quotes, which is not valid SQL: `examples/shell-check.sh` catches
-      # exactly that, because nothing in a Nix evaluation can.
+      # quote in that context is `'\''`: closing the shell quote, escaping one,
+      # reopening. Writing `'${v}'` instead emits `PASSWORD SECRET` without
+      # quotes, which is not valid SQL, and `examples/shell-check.sh` catches
+      # that, because nothing in a Nix evaluation can.
       sq = v: "'\\''" + v + "'\\''";
 
       provisionAll = lib.concatMapStringsSep " && " (
@@ -151,14 +151,14 @@ floe.mkFloe {
 
         # Note what is *not* here: a per-consumer password. A provide is one value
         # for every consumer, so a per-claimant secret would have to be a map keyed
-        # by unit — and that map is derived from the DB_ROLE_CLAIM collection, so a
+        # by unit, and that map comes out of the DB_ROLE_CLAIM collection, so a
         # claimant reading it is a cycle through the fold. `credentialDir` plus the
-        # consumer's own name is what is left, and it needs no backend at all.
+        # consumer's own name is what is left, and it needs no backend.
         #
         # There is a second, sharper reason it cannot work: `mkDeferred` binds
         # `source` to the unit whose body calls it, so only a *provider* can mint a
         # token for its own value. A consumer cannot construct one pointing at its
-        # provider, which is correct — provenance would otherwise be a claim the
+        # provider, which is correct: provenance would otherwise be a claim the
         # claimant makes about someone else.
         #
         # So the superuser credential is the one that gets both halves:
@@ -194,8 +194,8 @@ floe.mkFloe {
 
               ExecStart = "${package}/bin/postgres -D ${dataDir} -p ${toString port}";
 
-              # And the roles, after — a role cannot be created before the server
-              # accepts connections. This is the half that needed the collection:
+              # And the roles, after, because a role cannot be created before the
+              # server accepts connections. This is the half that needed the collection:
               # postgres learned what to provision from its peers, and no deployer
               # wrote a role name anywhere.
               # A plain conditional and not `lib.mkIf`: a `body` returns data, and

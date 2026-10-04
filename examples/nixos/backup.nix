@@ -1,7 +1,7 @@
 # A consumer that exists to be counted.
 #
-# It requires a DATABASE and nothing else, so in the fleet link — where three
-# postgres instances answer DATABASE — every one of these must be told which it
+# It requires a DATABASE and nothing else, so in the fleet link, where three
+# postgres instances answer DATABASE, every one of these must be told which it
 # means. That is the ceremony cost, and `deployerCost` in `default.nix` counts
 # it rather than arguing about it.
 {
@@ -65,7 +65,7 @@ floe.mkFloe {
             DynamicUser = "true";
 
             # The *superuser* credential, because a backup dumps the whole server
-            # rather than one database — so this consumer claims no role, which is
+            # rather than one database, so this consumer claims no role, which is
             # the other half of the collection story: not every consumer of
             # DATABASE contributes to it.
             #
@@ -75,7 +75,7 @@ floe.mkFloe {
             # readable.
             LoadCredential = "dbpw:${db.superuserPasswordFile}";
 
-            # And it is actually read. `$CREDENTIALS_DIRECTORY` is where systemd
+            # And it is read. `$CREDENTIALS_DIRECTORY` is where systemd
             # put it; pg_dump takes the password from PGPASSWORD. This is the whole
             # chain closed: postgres writes the file, systemd carries it, pg_dump
             # consumes it, and no floe ever held the secret at eval time.

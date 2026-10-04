@@ -10,7 +10,7 @@ SIG_CONSUMER = mkSig { name = "S"; shape = T.record { host = T.str; port = T.por
 ```
 
 The link succeeds. The consumer then dies with `attribute 'port' missing`,
-naming no floe, no signature and no provider — Nix's error, several frames
+naming no floe, no signature and no provider: Nix's error, several frames
 from the cause, and not catchable by `builtins.tryEval`. That is RFC 0001's
 open question 4 ("signature evolution… needed before third-party floes
 exist") in its concrete form, and it is the error a third-party floe pinning
@@ -31,7 +31,7 @@ Provider-shape `<:` requirer-shape, with ordinary covariance:
 | `nullOr`               | a non-null provider satisfies a `nullOr` requirer             |
 | `derivedFrom`          | transparent; `checkValue` already recurses to inner           |
 | `any`                  | top: satisfies any requirer, satisfied only by `any`          |
-| `deferred`             | asymmetric — see below                                        |
+| `deferred`             | asymmetric; see below                                         |
 
 `T.deferred` is the one asymmetry and it is the valuable one. A concrete
 provider satisfies a requirer that declared the field deferred, because the
@@ -52,29 +52,29 @@ concrete field beside it.
 ## Why not identity by value, and why no version numbers
 
 Refusing two distinct `mkSig` values that share a name was the obvious
-alternative and is too strict: it forbids the case compatibility handles
-correctly, where a third-party floe pins an older copy of a signature that
-is still structurally satisfied. The width rule accepts that and rejects the
-genuine mismatch.
+alternative and is too strict: it forbids the case compatibility handles,
+where a third-party floe pins an older copy of a signature that is still
+structurally satisfied. The width rule accepts that and rejects the real
+mismatch.
 
 It is also why there is no `version` field. The compatibility rule _is_ the
 evolution rule: adding a field to a signature is compatible with every
 existing requirer, removing or retyping one is not, and the error says which
-field. A version number would restate that less precisely and would need a
-compatibility rule of its own to mean anything.
+field. A version number would restate that with less precision and would
+need a compatibility rule of its own to mean anything.
 
 ## Why emitted signatures are not checked
 
-An emitted signature has no requirer. Nothing `requires` an `out` kind — the
-adapter reads `result.out.<name>` — so there are not two sides to compare,
-and co-emitters of one name must be free to differ. The NixOS example
-depends on exactly that: `postgres` emits `systemd` and `users` under
+An emitted signature has no requirer. Nothing `requires` an `out` kind,
+since the adapter reads `result.out.<name>`, so there are not two sides to
+compare, and co-emitters of one name must be free to differ. The NixOS
+example depends on that: `postgres` emits `systemd` and `users` under
 `nixos.config` while `networking` emits `networking`, and
 `examples/README.md` argues that the schema has no reason to be shared and
 here must not be.
 
-Compatibility is a requirer↔provider relation. Where there is no requirer
-there is no check, deliberately.
+Compatibility is a requirer↔provider relation. With no requirer there is no
+check, by design.
 
 ## Consequences
 
@@ -84,5 +84,5 @@ distribution can now also widen a shared signature without coordinating a
 release, since widening is the compatible direction.
 
 The check is header-only, so it costs nothing per value and runs before any
-body evaluates — the same property that makes `derivedFrom`'s refusal and
-the singleton check reportable rather than discovered.
+body evaluates, the same property that makes `derivedFrom`'s refusal and the
+singleton check reportable rather than discovered.

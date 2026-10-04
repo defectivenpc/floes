@@ -2,7 +2,7 @@
 #
 # A signature is a dotted `name` plus its `fields`. The *name* is what collects
 # fragments from different floes into one bucket; the *fields* have no reason to
-# be shared, and here they must not be — `postgres` emits `systemd` and `users`,
+# be shared, and here they must not be: `postgres` emits `systemd` and `users`,
 # `networking` emits `networking`, and they have nothing in common.
 #
 # So each floe narrows them itself, the way a NixOS module declares its own

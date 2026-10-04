@@ -30,7 +30,7 @@
       mkFloeLib = lib: import ./lib { inherit lib; };
 
       # The same against this flake's own pin, for a reader with no nixpkgs
-      # to hand — `nix eval github:defectivenpc/floes#lib.T`.
+      # to hand: `nix eval github:defectivenpc/floes#lib.T`.
       lib = import ./lib { lib = nixpkgs.lib; };
     }
     // flake-utils.lib.eachDefaultSystem (
@@ -50,10 +50,10 @@
 
         # The NixOS example's fragments, handed to NixOS. Forcing the toplevel
         # derivation's path evaluates the whole configuration, which is what
-        # proves the fragments are valid config and not merely well-typed data
-        # — a snapshot cannot tell a real option path from a plausible one.
+        # proves the fragments are valid config rather than well-typed data:
+        # a snapshot cannot tell a real option path from a plausible one.
         #
-        # The context is discarded deliberately: this check should evaluate a
+        # Discarding the context is the point: this check should evaluate a
         # NixOS system, not build one.
         exampleSystem =
           mods:
@@ -96,15 +96,15 @@
           '';
 
           # `T.package` against a real derivation, which is the only place one
-          # exists: `examples/` is deliberately `pkgs`-free, and `tests/` is
+          # exists: `examples/` is `pkgs`-free by design, and `tests/` is
           # evaluated with `lib` alone so it needs no store. The unit suite
           # checks the type against a derivation-shaped attrset; this checks it
           # against `pkgs.hello`.
           #
-          # What it is really checking is the scan. A derivation is an attrset
-          # whose `out` is itself, so walking one is a stack overflow — and an
+          # What it checks is the scan. A derivation is an attrset
+          # whose `out` is itself, so walking one is a stack overflow, and an
           # uncatchable one, which made a package in `out` take down any link
-          # whose sites were read. Every NixOS module writing
+          # whose sites were read. Any NixOS module writing
           # `environment.systemPackages` puts one there.
           packages-in-output =
             let

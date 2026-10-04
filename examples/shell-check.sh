@@ -3,9 +3,9 @@
 # its author intended.
 #
 # `postgres.nix` builds `ExecStartPre` and `ExecStartPost` as strings, which is
-# forced — a floe's output must be inert data, so it cannot build a script
+# forced: a floe's output must be inert data, so it cannot build a script
 # derivation. Every check in the repo passes on a string that parses as *some*
-# shell, and the NixOS evaluation is happy with any string at all. Even `sh -n`
+# shell, and the NixOS evaluation is happy with any string. Even `sh -n`
 # is not enough: the first version of this SQL was syntactically valid and
 # semantically wrong, emitting
 #
@@ -15,8 +15,8 @@
 # them. Postgres would have rejected it at apply time.
 #
 # So: run the emitted command with fake binaries on PATH and look at what the
-# arguments actually came out as. Not a flake check — it needs a writable
-# directory and a real shell — but cheap to run and the only thing here that
+# arguments came out as. Not a flake check, since it needs a writable
+# directory and a real shell, but cheap to run and the only thing here that
 # would have caught that bug.
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -35,13 +35,13 @@ while [ $# -gt 0 ]; do
 done
 EOF
 
-# Fail the existence guards so the create branch runs — and echo what came in,
+# Fail the existence guards so the create branch runs, and echo what came in,
 # because the guard's SQL goes to this through a pipe and is otherwise invisible.
 printf '#!/bin/sh\ncat >&2\nexit 1\n' > "$fake/bin/grep"
 # Stand in for the generated secret.
 printf '#!/bin/sh\necho SECRET\n' > "$fake/bin/cat"
 # The generator side. `test` is a shell builtin and cannot be faked, so the
-# state directory is redirected instead — otherwise the generator really tries to
+# state directory is redirected instead; otherwise the generator tries to
 # write to /var/lib and fails on permissions rather than on anything real.
 printf '#!/bin/sh\necho RANDOM\n' > "$fake/bin/head"
 printf '#!/bin/sh\ncat\n' > "$fake/bin/base64"

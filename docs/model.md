@@ -1,10 +1,9 @@
 # The Model
 
-The vocabulary is borrowed, not invented, and knowing the source explains
-most of it at once. Floe is Haskell's
-[Backpack](https://plv.mpi-sws.org/backpack/) — a mixin module system —
-applied to NixOS modules rather than to Haskell modules, with sealing from
-ML.
+Floe borrows its vocabulary, and knowing the source explains most of it at
+once. Floe is Haskell's [Backpack](https://plv.mpi-sws.org/backpack/), a
+mixin module system, applied to NixOS modules rather than to Haskell
+modules, with sealing from ML.
 
 | Here                        | There                                                                   |
 | --------------------------- | ----------------------------------------------------------------------- |
@@ -18,8 +17,7 @@ ML.
 That correspondence is why the rules are what they are. A hole must be
 filled by exactly one provider because mixin linking resolves **by name, not
 by search**. A provided value is sealed because a signature is the _whole_
-interface — if a consumer could read past it, the signature would not be
-one.
+interface: if a consumer could read past it, the signature would not be one.
 
 ## The one word that diverges
 
@@ -39,20 +37,20 @@ instance, and two coexist.
 
 Three things, each because infrastructure has a problem a compiler does not.
 
-**`collects`** — a hole taking every provider rather than one. Backpack has
+**`collects`**: a hole taking every provider rather than one. Backpack has
 no fan-in, because a Haskell unit does not aggregate. A firewall owner
 collecting a port claim from every service does, and the consumer folds the
 collection: nothing merges in the linker, so there is no lattice and no
 order-independence obligation.
 
-**`T.deferred`** — a value that does not exist until after apply, from which
+**`T.deferred`**: a value that does not exist until after apply, from which
 the linker derives a deploy edge and a phase. A compiler's inputs all exist;
 a generated secret or an allocated address does not. The provider also
 declares a **retrieval**, an ordinary signature saying where the value will
 be readable, which is how one signature survives two domains with two
 mechanisms.
 
-**`T.derivedFrom`** — a field its provider folded out of a collection. The
+**`T.derivedFrom`**: a field its provider folded out of a collection. The
 linker withholds that one field from the peers feeding that fold, because
 reading it there is a cycle through the fold. Backpack has nothing to say
 about a unit reading back its own contribution.
@@ -61,18 +59,18 @@ about a unit reading back its own contribution.
 
 **Nesting.** A link is one fixpoint over one set of units, and there is no
 wider scope it falls back to. Backpack has `include`: a unit that includes
-other units and re-exports what they provide. A `mkInclusion` was built for
-it and withdrawn — a floe whose body is a link makes "floe" two kinds of
-thing — so a value from outside is added to the link as an ordinary unit
-providing it, and what may cross a boundary is a table the distribution
-keeps. `docs/adr/0003` and `docs/adr/0006` are the history.
+other units and re-exports what they provide. A `mkInclusion` existed for it
+and came out again, because a floe whose body is a link makes "floe" two
+kinds of thing. A value from outside joins the link as an ordinary unit
+providing it, and the distribution keeps the table of what may cross a
+boundary. `docs/adr/0003` and `docs/adr/0006` are the history.
 
 **Per-floe separate compilation.** Backpack type-checks a unit against its
-holes with no implementation present. Here a floe is checked by linking it
-against stubs, because the check is on values at eval rather than on source
-— and `link.cycles` says why that is unlikely to change soon: in a real link
-the components are large enough that a floe is rarely a unit of anything on
-its own.
+holes with no implementation present. Here you check a floe by linking it
+against stubs, because the check is on values at eval rather than on source.
+`link.cycles` says why that is unlikely to change soon: in a real link the
+components are large enough that a floe is rarely a unit of anything on its
+own.
 
 ## Distributions
 
@@ -82,12 +80,11 @@ at link, and the adapter that turns a link result into what its world wants.
 
 [Catallaxy](https://github.com/defectivenpc/catallaxy) is one, for
 Kubernetes: forty floes and five labs, and the thing that exercises this
-library in anger. `examples/` holds two small ones — a NixOS probe and a
-Kubernetes contrast — which exist so that the library is developed against
-more than one domain.
+library in anger. `examples/` holds two small ones, a NixOS probe and a
+Kubernetes contrast, so development runs against more than one domain.
 
 ## Next
 
 - [The mkFloe API](floe-api.md): the surface this describes.
 - [RFC 0001](rfcs/0001-floes.md): the design it argues for, and its five
-  open questions — four of which are now answered in place.
+  open questions, four of which are now answered in place.

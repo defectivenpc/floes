@@ -1,13 +1,13 @@
 # floe
 
 **Typed interfaces and mixin linking for Nix modules.** A floe is a unit
-with declared surfaces — inputs, requires, optional, collects, provides, out
-— and a body of ordinary NixOS modules. What a floe needs, it names by
+with declared surfaces (inputs, requires, optional, collects, provides, out)
+and a body of ordinary NixOS modules. What a floe needs, it names by
 _signature_; the linker finds whatever provides it, checks the value against
 that signature, and hides everything else.
 
-The model is Haskell's Backpack — signatures, holes, mixin linking,
-instantiation — applied to the NixOS module system, with sealing from ML.
+The model is Haskell's Backpack (signatures, holes, mixin linking,
+instantiation) applied to the NixOS module system, with sealing from ML.
 [RFC 0001](docs/rfcs/0001-floes.md) is the design;
 [The Model](docs/model.md) says where the words come from.
 
@@ -31,15 +31,15 @@ the link provides it, checked at eval, and a second is an error naming both.
 
 ## Why
 
-The NixOS module system solves intra-component composition — merging partial
-configuration from many files — extremely well, and inter-component
-interfaces poorly: one global option tree, merge-everything semantics, no
-hiding. Any module may write any option, and nothing says what a component
-promises or requires.
+The NixOS module system solves intra-component composition, merging partial
+configuration from many files. It does not solve inter-component interfaces:
+one global option tree, merge-everything semantics, no hiding. Any module
+may write any option, and nothing says what a component promises or
+requires.
 
 Floe adds the missing layer without touching the module system. Each floe
 wraps its own isolated `evalModules`, so merge stays where it works. Between
-floes there are signatures, exactly-one resolution, and sealing — so a value
+floes there are signatures, exactly-one resolution, and sealing. A value
 crossing a boundary has a declared shape, and a consumer sees only the
 fields the signature names.
 
@@ -68,9 +68,9 @@ consumer means, per consumer or once for the link:
 floe.link { units = { … }; defaults.X509_ISSUANCE = "internal-ca"; }
 ```
 
-`optional` is the one with a surprising rule: a provider merely being
-present wires nothing, so adding a floe to a link can never silently change
-another floe's output.
+`optional` has the surprising rule: a provider being present wires nothing,
+so adding a floe to a link cannot change another floe's output behind your
+back.
 
 [The mkFloe API](docs/floe-api.md) is the reference.
 
@@ -94,7 +94,7 @@ downstream. `floe.lib` is the same library against this flake's own pin, for
 poking at it without a nixpkgs to hand.
 
 The library depends on nothing but `nixpkgs.lib`. It knows nothing about
-Kubernetes, or about any particular domain — a _distribution_ supplies the
+Kubernetes, or about any particular domain. A _distribution_ supplies the
 signatures, and `examples/` holds two small worked ones.
 
 ## Develop
@@ -108,10 +108,10 @@ nix fmt
 
 Extracted from [catallaxy](https://github.com/defectivenpc/catallaxy), where
 it was `lib/floe-core`. That directory is gone: catallaxy takes this
-repository as a flake input and is the layer its platform is built on —
-forty floes and five labs, which is what exercises this library in anger.
-That repository's history has everything before the extraction, including
-two earlier implementations that preceded this design.
+repository as a flake input and builds its platform on this layer, forty
+floes and five labs, which exercise this library in anger. That repository's
+history has everything before the extraction, including two earlier
+implementations that preceded this design.
 
 ## License
 

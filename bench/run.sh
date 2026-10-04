@@ -11,10 +11,10 @@
 # machine perturbs them less. `gc_mb` is total bytes allocated over the whole
 # evaluation, not peak residency.
 #
-# A failed `nix eval` still writes a stats file — holding the cost of parsing
+# A failed `nix eval` still writes a stats file, holding the cost of parsing
 # the expression that failed, which is small and plausible-looking. So every
 # measurement here checks the exit status and prints FAILED rather than a
-# number. A benchmark that silently reports the cost of a syntax error is worse
+# number. A benchmark reporting the cost of a syntax error unannounced is worse
 # than no benchmark.
 set -euo pipefail
 cd "$(dirname "$0")/.."

@@ -2,9 +2,9 @@
 #
 # Nine checks, all reading headers alone, all producing a list of messages, all
 # consumed by one `firstRefusal`. They were half of `lib/link.nix`, which also
-# resolves, evaluates a fixpoint, derives a graph and collects output — and
-# they are the half a reader reaches for most often, because every error
-# message in the system is here.
+# resolves, evaluates a fixpoint, derives a graph and collects output. They
+# are the half a reader reaches for most often, because every error message in
+# the system is here.
 #
 # The order is a decision, not an accident: a unit that answers its own hole
 # is reported before the unnamed-optional-provider error, because a floe that
@@ -18,7 +18,7 @@
   # firstRefusal :: Context -> string | null
   #
   # Null when the link stands. The checks are a list rather than an `if`/`else
-  # if` chain so the order is data, and `findFirst` keeps them lazy — nothing
+  # if` chain so the order is data, and `findFirst` keeps them lazy: nothing
   # computes compatibility for a link whose names already collide.
   firstRefusal =
     ctx:
@@ -37,11 +37,11 @@
 
       # A name may not mean two different signatures.
       #
-      # Not the other direction: a floe may legitimately hold two holes on one
-      # signature — a primary and a replica database — so a signature cannot be
-      # pinned to a single name. What goes wrong in practice is the reverse, and
-      # it is what `canonicalName` exists to prevent: `provides.operator` meaning
-      # four different things across a catalogue, so a reader cannot tell which.
+      # Not the other direction: a floe may hold two holes on one signature, a
+      # primary and a replica database, so a signature cannot be pinned to a
+      # single name. The reverse is what goes wrong in practice, and what
+      # `canonicalName` exists to prevent: `provides.operator` meaning four
+      # different things across a catalogue, so a reader cannot tell which.
       nameCollisions =
         let
           byName = lib.groupBy (e: e.holeName) allSurfaces;
@@ -78,7 +78,7 @@
       ) instNames;
 
       # One name on two singular surfaces of one floe. They resolve into one
-      # `requires` attrset, so without this one of them is silently dropped.
+      # `requires` attrset, so without this one of them vanishes without a word.
       surfaceCollisions = lib.concatMap (
         u:
         let
@@ -89,7 +89,7 @@
         )
       ) instNames;
 
-      # An optional hole nobody named, in a link that has a provider for it. The
+      # An optional hole no one named, in a link that has a provider for it. The
       # no-op would be defensible and is not what a deployer who added the
       # provider expects, so it is an error that names the candidate.
       unnamedOptionals = lib.concatMap (
@@ -112,10 +112,10 @@
         )
       ) instNames;
 
-      # A `.bind` naming a collected hole. Silently ignored until now, because
-      # `wiringAll` takes every provider and never consulted a binding — so a
-      # deployer who wrote one believed it did something. A collection's arity is
-      # every provider; there is nothing there to choose.
+      # A `.bind` naming a collected hole. Ignored without a word until now,
+      # because `wiringAll` takes every provider and never consulted a binding,
+      # so a deployer who wrote one believed it did something. A collection's
+      # arity is every provider; there is nothing there to choose.
       collectBindings = lib.concatMap (
         u:
         let
@@ -128,7 +128,7 @@
 
       # Two instances of a floe that declared itself a singleton. Its body writes
       # fixed paths rather than keying them by `config.floe.name`, so both
-      # instances emit the same output — and identical values merge without
+      # instances emit the same output, and identical values merge without
       # complaint wherever that output lands. The deployer gets one of the thing
       # and believes they have two, with no error anywhere downstream, which is
       # why this one has to be caught here.
@@ -149,7 +149,7 @@
       #
       # Resolution matches a signature by `name`, a bare string. Nothing used to
       # compare the shapes behind it, so two definitions of one name linked
-      # cleanly and then failed where the value was read —
+      # cleanly and then failed where the value was read, with
       # `attribute 'port' missing`, naming no floe and catchable by nothing.
       # That is the error a third-party floe pinning an older copy of a
       # signature gets, and it is why this check exists. ADR 0007.
@@ -225,15 +225,16 @@
           + "\n\nRead the provide directly; it is in scope and needs no link."
         ))
         (lib.optional (unnamedOptionals != [ ]) (
-          "floe link error: an optional hole has a provider that nobody named.\n  - "
+          "floe link error: an optional hole has a provider that no one named.\n  - "
           + lib.concatMapStringsSep "\n  - " (
             o:
             "unit '${o.u}' optionally requires '${o.sig.name}' as hole '${o.hole}', provided "
             + "here by ${o.describe}"
           ) unnamedOptionals
-          + "\n\nAn optional hole is never wired by a provider merely being present, so "
-          + "nothing is connected and the unit would quietly run without it. That is what "
-          + "keeps adding a floe from silently changing another floe's output.\n\n"
+          + "\n\nAn optional hole is never wired by a provider being present, so "
+          + "nothing is connected and the unit would run without it and without a "
+          + "word. That is what keeps adding a floe from changing another floe's "
+          + "output behind your back.\n\n"
           + "Wire it for one unit with `.bind { "
           + "${(lib.head unnamedOptionals).hole} = \"${(lib.head unnamedOptionals).candidate}\"; }`, "
           + "or for every unit with `link { defaults.${(lib.head unnamedOptionals).sig.name} = "

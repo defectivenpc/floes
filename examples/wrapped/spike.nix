@@ -7,7 +7,7 @@
 #   nix eval --impure --expr \
 #     'builtins.deepSeq (import ./examples/wrapped/spike.nix { k = 3; }) 1'
 #
-# Deliberately not a flake check and deliberately not optimised. It exists so the
+# Not a flake check, and not optimised. It exists so the
 # numbers in `README.md` can be re-derived rather than believed, and so the next
 # person who wonders "could floes just wrap nixpkgs?" gets an answer in one
 # command. `k` takes the first k cases; the first three survive deep forcing and
@@ -35,8 +35,8 @@ let
       m = "services/monitoring/prometheus/default.nix";
       cfg.services.prometheus.enable = true;
     }
-    # Both of these load, and both fail once their output is actually forced —
-    # on a *read*, not a write. postgresql wants `config.system.stateVersion`;
+    # Both of these load, and both fail once their output is forced, on a
+    # *read* rather than a write. postgresql wants `config.system.stateVersion`;
     # sshd wants `config.programs.ssh.*`. See `shim.nix` on why that distinction
     # is the whole finding.
     {

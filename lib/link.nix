@@ -28,9 +28,9 @@ in
       # defaults :: { SignatureName -> "<unit>" | "<unit>/<provide>" }
       #
       # Which provider a hole means when its consumer did not say. The deployer's,
-      # in one place, and applied only where a unit gave no `.bind` of its own —
+      # in one place, and applied only where a unit gave no `.bind` of its own,
       # so adding a second provider stops being a breaking change to every
-      # existing consumer, without making ambiguity silent where nobody decided.
+      # existing consumer, without making ambiguity silent where no one decided.
       defaults ? { },
 
       # catalogue :: { FloeName -> [SignatureName] }
@@ -57,8 +57,8 @@ in
       # Every provide in the link, grouped by the signature name it answers.
       #
       # Built once, because the arity rules ask "who provides this?" once per
-      # hole and the obvious implementation — scan every unit's provides, per
-      # hole — is O(units x holes). Two of them, in fact: `wiringOne` and
+      # hole and the obvious implementation, scanning every unit's provides per
+      # hole, is O(units x holes). Two of them, in fact: `wiringOne` and
       # the self-resolution check each did their own pass. At a thousand of each that
       # was 1.1s and 586MB of the 1.3s a link took, against 0.17s and 129MB
       # for this. `bench/run.sh` is the measurement.
@@ -76,7 +76,7 @@ in
         ) instNames
       );
 
-      # `sigName` is the index's key and not part of a provider reference —
+      # `sigName` is the index's key and not part of a provider reference:
       # these records reach `result.wiring`, where an extra field would show.
       providersOf = sigName: map (p: removeAttrs p [ "sigName" ]) (providerIndex.${sigName} or [ ]);
 
@@ -199,10 +199,10 @@ in
       ) (lib.genAttrs instNames getInstance);
 
       # Zero or one, and the asymmetry with `requires` is the point: a provider
-      # merely being present wires nothing. Otherwise adding a floe to a link
+      # being present wires nothing. Otherwise adding a floe to a link
       # rewrites another floe's output with nothing saying so, which is the
       # action at a distance that makes `enable` flags frightening once a
-      # configuration is large enough that nobody reads all of it.
+      # configuration is large enough that no reader holds all of it.
       #
       # So an unnamed provider is an error rather than a silent no-op, because a
       # deployer who added kanidm and got no OIDC needs to be told why.
@@ -232,7 +232,7 @@ in
       ) (lib.genAttrs instNames getInstance);
 
       # The third arity: every provider rather than the one. This link's own
-      # units, and never the collecting unit itself — a floe that answers the
+      # units, and never the collecting unit itself: a floe that answers the
       # signature reads its own provide and needs no link to do it.
       wiringAll = lib.mapAttrs (
         u: inst:
@@ -278,8 +278,8 @@ in
                 + "it. Reading it here is a cycle: the fold needs '${u}'s contribution, "
                 + "and '${u}' would need the fold.\n\n"
                 + "This is the one read that cannot work. Every other field of "
-                + "'${sig.name}' is fine from '${u}' — it is the field, not the hole, "
-                + "that closes the loop."
+                + "'${sig.name}' is fine from '${u}': the field closes the loop, "
+                + "not the hole."
               )
             else
               v
@@ -346,7 +346,7 @@ in
       # Every deferred token in a value, with the path it sits at.
       #
       # The path is a *list* and not a dotted string, because output keys contain
-      # dots — a Kubernetes annotation is `floe.dev/ca-fingerprint`, and a backend
+      # dots: a Kubernetes annotation is `floe.dev/ca-fingerprint`, and a backend
       # that had to split a string there would write to the wrong place.
       scanTokens =
         at: v:
@@ -358,7 +358,7 @@ in
             }
           ]
         # A derivation is an attrset whose `out` is itself, so walking it is a
-        # stack overflow — and one `tryEval` cannot catch, which made a package
+        # stack overflow, and one `tryEval` cannot catch, which made a package
         # in `out` an uncatchable crash in any link whose sites were read. It
         # holds no token either: a built thing is opaque. ADR 0008.
         else if lib.isDerivation v then
@@ -437,19 +437,19 @@ in
       # ---- Cycles ------------------------------------------------------------
       #
       # The strongly-connected components of the eval graph. Derivable here
-      # because the eval graph comes from headers — nothing has evaluated when
-      # this is known — which is the whole of why ADR 0008 answers RFC 0001's
+      # because the eval graph comes from headers, with nothing evaluated when
+      # this is known, which is the whole of why ADR 0008 answers RFC 0001's
       # open question 3 with "derived" rather than "declared".
       #
-      # Worth exposing rather than merely knowing: a floe's output depends on
+      # Worth exposing rather than only knowing: a floe's output depends on
       # its declared inputs and resolved requires and nothing else, so a unit
-      # is a natural memoization unit — unless it sits in a cycle, in which
+      # is a natural memoization unit, unless it sits in a cycle, in which
       # case the cycle is. Naming the cycles is therefore everything core can
       # say about caching without building it, because **every unit not in one
       # is its own cache unit.**
       #
       # It is also what a distribution needs in order to refuse cycles, which
-      # some will want and this deliberately does not:
+      # some will want and this leaves to them:
       #
       #   policies = [ (r: map (c: "cycle: ${lib.concatStringsSep " -> " c}") r.cycles) ];
       #

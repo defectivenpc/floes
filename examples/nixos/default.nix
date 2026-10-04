@@ -112,8 +112,8 @@ in
   # A deployer needs nginx's `clientMaxBodySize`. `nginx.nix` does not expose it
   # as an input, and there is nothing else to reach for: `.bind` picks providers,
   # `instantiate` only takes declared inputs, and there is no `floe.extend`. This
-  # is failure mode 3 from the design discussion — the Helm `values.yaml`
-  # complaint, and reportedly the number one complaint about Helm.
+  # is failure mode 3 from the design discussion: the Helm `values.yaml`
+  # complaint, and said to be the number one complaint about Helm.
   #
   # The honest answers are two. Fork the floe. Or patch the fragment on its way
   # out, which works today with no library support at all, because the adapter is
@@ -174,7 +174,7 @@ in
 
   # Two nginx instances. It declares itself a singleton because its body writes
   # `services.nginx` rather than keying by `config.floe.name`, so both fragments
-  # would be *identical* — and identical values merge without complaint. The
+  # would be *identical*, and identical values merge without complaint. The
   # deployer would get one proxy and believe they had two. This is the only
   # failure in the example that nothing downstream can catch.
   twoSingletons = floe.link {
@@ -184,7 +184,7 @@ in
   };
 
   # Two workloads claiming one hostname. `nginx` owns the vhost namespace, and
-  # `mapAttrs'` would otherwise have silently kept one of them.
+  # `mapAttrs'` would otherwise have kept one of them without a word.
   hostnameCollision = floe.link {
     units = units // {
       other = (floes.webapp.instantiate { subdomain = "webapp"; }).bind { database = "main"; };
@@ -210,9 +210,9 @@ in
         units = units // {
           offender = def.instantiate { };
         };
-        # Without this the offender's DATABASE hole is ambiguous — two postgres
-        # instances answer it — and each of these links would fail on *that*
-        # instead of on the mistake it exists to demonstrate. Which is the
+        # Without this the offender's DATABASE hole is ambiguous, since two
+        # postgres instances answer it, and each of these links would fail on
+        # *that* instead of on the mistake it exists to demonstrate. Which is the
         # clearest argument for `defaults` there is: one line, and every
         # consumer that has no opinion keeps working.
         defaults.DATABASE = "main";

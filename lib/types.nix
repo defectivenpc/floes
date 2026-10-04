@@ -69,8 +69,8 @@ rec {
 
   # A built thing, as a derivation or as the store path one coerces to. The one
   # way something built crosses a floe boundary, and the reason `out` can carry
-  # `environment.systemPackages` at all — `T.str` refuses a derivation, and
-  # `T.any` admits it and then meets `scanTokens`.
+  # `environment.systemPackages`: `T.str` refuses a derivation, and `T.any`
+  # admits it and then meets `scanTokens`.
   #
   # Distinct from the package *set* a body builds with: which nixpkgs, which
   # overlays and which system are the deployer's choice, so they arrive as an
@@ -108,7 +108,7 @@ rec {
   };
   # A field computed by folding a collection. The linker withholds it from any
   # unit that contributes to that collection *and* reads it from the unit doing
-  # the collecting — which would be a cycle through the fold. Marked here rather
+  # the collecting, which would be a cycle through the fold. Marked here rather
   # than inferred, because only the author of the signature knows.
   derivedFrom = sig: inner: {
     tag = "derivedFrom";
@@ -153,7 +153,7 @@ rec {
   #
   # Whether a provider's shape answers a requirer's. Resolution keys on a
   # signature's `name`, a bare string, so two definitions of one name used to
-  # link cleanly and then fail where the value was read —
+  # link cleanly and then fail where the value was read, with
   # `attribute 'port' missing`, naming no floe, no field and no provider, and
   # not catchable by `tryEval`. This is the check that makes a third-party
   # floe's version skew an error at link. ADR 0007.
@@ -172,7 +172,7 @@ rec {
 
   # mismatches :: [string] -> providerType -> requirerType -> [string]
   # Empty when the provider answers. One entry per incompatible field, each
-  # naming its dotted path, because a signature that moved usually moved once.
+  # naming its dotted path, because a signature that moved tends to move once.
   mismatches =
     path: p: r:
     let
@@ -284,7 +284,7 @@ rec {
       fail (
         "got a deferred value where concrete ${ty.name} is required. It comes from "
         + "'${toString (v.source or "?")}' and will be readable via "
-        + "'${toString (v.retrieval or "?")}' once that has been applied — so it "
+        + "'${toString (v.retrieval or "?")}' once that has been applied, so it "
         + "cannot be used at evaluation time."
       )
     else if ty.tag == "nullOr" then

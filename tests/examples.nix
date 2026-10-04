@@ -3,7 +3,7 @@
 # The NixOS half is a probe, not a fixture. It asserts that a service can
 # contribute to a namespace it does not own, that two instances of one service
 # coexist, that the mutual cycles this creates resolve, and what the deployer
-# pays for all of it. It also pins the three ways the example is deliberately
+# pays for all of it. It also pins the three ways the example is knowingly
 # broken, including the one where floe has nothing useful to say.
 { lib, floe }:
 
@@ -50,7 +50,7 @@ lib.runTests {
 
   # The claim that matters, and note which namespaces do *not* need an owner.
   # `networking` is the only emitter of `networking` because a port list merges
-  # by policy. `systemd` and `users` have several emitters and that is fine —
+  # by policy. `systemd` and `users` have several emitters and that is fine:
   # an attrset keyed by a unique name is disjoint by construction.
   testPolicyMergedNamespacesHaveExactlyOneEmitter = {
     expr = {
@@ -151,7 +151,7 @@ lib.runTests {
   # A second provider of a signature used to break every existing consumer of it.
   # `link { defaults.DATABASE = "main"; }` is one line that keeps the consumers
   # with no opinion working, and it took the fleet from twenty-three binds to
-  # fifteen — against a deliberately adversarial round-robin spread across three
+  # fifteen, against an adversarial round-robin spread across three
   # databases. A fleet with one dominant database would keep almost none.
   testDeployerCost = {
     expr = nixos.deployerCost;
@@ -169,8 +169,9 @@ lib.runTests {
     };
   };
 
-  # And the default did not silently collapse them: each backup still dumps a
-  # different database. A default that quietly merged consumers would be worse
+  # And the default did not collapse them without a word: each backup still
+  # dumps a different database. A default that merged consumers unannounced
+  # would be worse
   # than the breakage it replaced.
   testTheDefaultDoesNotCollapseConsumers = {
     expr =
@@ -239,7 +240,7 @@ lib.runTests {
   # ---- The fleet -------------------------------------------------------
 
   # Twenty workloads, three databases, two twenty-member collections, and not one
-  # colliding option path — because every floe keys its output by the link's name
+  # colliding option path, because every floe keys its output by the link's name
   # for it.
   testTheFleetFansInWithoutColliding = {
     expr = {
@@ -309,7 +310,7 @@ lib.runTests {
     expected = true;
   };
 
-  # The same shape, a different owner: `mapAttrs'` would have silently kept one
+  # The same shape, a different owner: `mapAttrs'` would have kept one
   # virtual host and left the other workload unreachable.
   testTwoWorkloadsClaimingOneHostnameIsRefused = {
     expr = fails nixos.hostnameCollision.out;
@@ -325,7 +326,7 @@ lib.runTests {
 
   # Two instances of a floe that writes fixed paths. The one failure here that
   # nothing downstream could catch: both fragments are *identical*, so every
-  # merge accepts them and the deployer silently gets one of the thing.
+  # merge accepts them and the deployer gets one of the thing, unannounced.
   testTwoInstancesOfASingletonFloeIsRefused = {
     expr = fails nixos.twoSingletons.out;
     expected = true;
@@ -335,7 +336,7 @@ lib.runTests {
 
   # The honest answer to "I need a flag the floe doesn't expose": patch the
   # fragment on the way out. It works today with no library support, because the
-  # adapter is the deployer's own function — and it costs what a post-renderer
+  # adapter is the deployer's own function, and it costs what a post-renderer
   # costs, which `default.nix` spells out.
   testTheOutputCanBePatchedByTheDeployer = {
     expr =
@@ -358,7 +359,7 @@ lib.runTests {
   # `NETWORK.openPorts` is `T.derivedFrom PORT_CLAIM`, and `offender` contributes
   # a PORT_CLAIM, so `link` refuses it that one field before anything evaluates.
   # Before the marking existed this was `infinite recursion encountered` with no
-  # floe, hole or field named — and it was not even catchable by `tryEval`, so no
+  # floe, hole or field named, and not catchable by `tryEval` either, so no
   # test could hold it and nothing could wrap it in a better message.
   #
   # Note what still works: `nginx` requires the same hole from the same floe in
@@ -408,15 +409,15 @@ lib.runTests {
   # The distinctive bit of this example, and the thing no other one does: a
   # collection coordinating with a deferred value. Postgres cannot know its
   # consumers, so it collects what they ask for and provisions a role, a database
-  # and a credential per claimant — at apply time, which is why the secret is
-  # deferred at all.
+  # and a credential per claimant, at apply time, which is why the secret is
+  # deferred.
   #
   # These used to be a path postgres invented and nothing created, mounted by
   # consumers that never read it. Every link declared, none connected.
 
-  # One credential per claimant, not one shared by everyone. Twenty fleet
-  # workloads get twenty files, and neither the role name nor the database name
-  # was written by a deployer — both are the claimant's own unit name.
+  # One credential per claimant, rather than one shared by all of them. Twenty
+  # fleet workloads get twenty files, and no deployer writes the role name or
+  # the database name: both are the claimant's own unit name.
   testEachClaimantGetsItsOwnCredential = {
     expr =
       let
@@ -456,7 +457,7 @@ lib.runTests {
 
   # The roles themselves are created after the server starts, because a role
   # cannot be created before it accepts connections. Two hooks for two different
-  # prerequisites — and the content of both came from the collection, so no
+  # prerequisites, and the content of both came from the collection, so no
   # deployer wrote a role name anywhere.
   testRolesAreProvisionedFromTheCollection = {
     expr =
@@ -472,7 +473,7 @@ lib.runTests {
         #
         # Matched without the quotes, because at this level the string still holds
         # the shell escape `'\''` rather than what a shell will make of it. What
-        # the SQL *becomes* is `examples/shell-check.sh`'s job, and has to be —
+        # the SQL *becomes* is `examples/shell-check.sh`'s job, and has to be:
         # nothing in a Nix evaluation can see through `sh -c`.
         guardedOnExisting = lib.hasInfix "FROM pg_roles WHERE rolname=" pg.ExecStartPost;
         generatesBeforeStarting = lib.hasInfix "credentials/webapp" pg.ExecStartPre;
@@ -487,7 +488,7 @@ lib.runTests {
 
   # Not every consumer of DATABASE claims a role. A backup dumps the whole
   # server, so it takes the superuser credential and contributes nothing to the
-  # collection — which is the other half of the fan-in story.
+  # collection, which is the other half of the fan-in story.
   testAConsumerMayTakeTheSuperuserAndClaimNothing = {
     expr =
       let
@@ -543,8 +544,8 @@ lib.runTests {
 
   # ---- Deferred values, and what a backend does with them ----------------
 
-  # The two examples declare the *same* kind of value — one that does not exist
-  # until after apply — through mechanisms with nothing in common. That is the
+  # The two examples declare the *same* kind of value, one that does not exist
+  # until after apply, through mechanisms with nothing in common. That is the
   # whole reason the retrieval is the provider's to declare and not the
   # signature field's: `DATABASE.password` and `ISSUER.caFingerprint` are both
   # `T.deferred T.str`, and neither signature knows anything about Secrets or
@@ -574,8 +575,8 @@ lib.runTests {
     expr = {
       k8s = lib.length k8s.link.deferredSites;
       nixos = lib.length nixos.link.deferredSites;
-      # The concrete alternative the NixOS consumers actually use — and it is
-      # per-claimant, not one secret shared by all of them.
+      # The concrete alternative the NixOS consumers use, and it is per-claimant
+      # rather than one secret shared by all of them.
       webappUsesThePath =
         nixos.link.out."nixos.config".webapp.systemd.services.webapp.serviceConfig.LoadCredential;
     };
@@ -587,11 +588,11 @@ lib.runTests {
   };
 
   # A site is a complete instruction: read *this*, write it *there*. The path is
-  # a list because output keys contain dots — `floe.dev/ca-fingerprint` — and a
-  # backend splitting a dotted string would write to the wrong place.
+  # a list because output keys contain dots, as in `floe.dev/ca-fingerprint`,
+  # and a backend splitting a dotted string would write to the wrong place.
   # `__toString` is dropped before comparing: it is a function, so it can be
-  # neither compared nor serialised, and that is the whole of what it is for —
-  # interpolating a token is a floe error rather than Nix's uncatchable
+  # neither compared nor serialised, and that is the whole of what it is for.
+  # Interpolating a token is a floe error rather than Nix's uncatchable
   # coercion failure. `testInterpolatingADeferredValueIsRefused` holds that.
   testASiteSaysWhatToReadAndWhereToPutIt = {
     expr =
@@ -620,12 +621,12 @@ lib.runTests {
     };
   };
 
-  # What a backend does, in the test rather than in the library — because core
+  # What a backend does, in the test rather than in the library, because core
   # cannot know how a value is reified, only that it must be. If `deferredSites`
   # were not sufficient to write this, it would not be sufficient for a real
   # backend either, and that is the point of having it here.
   #
-  # Core deliberately ships no resolver: a ConfigMap, a Secret, an
+  # Core ships no resolver, by design: a ConfigMap, a Secret, an
   # annotation, a file and an HTTP lookup are five mechanisms for one job, and
   # picking one in core would be choosing for every distribution at once.
   testABackendCanCloseTheLoop = {
@@ -699,15 +700,15 @@ lib.runTests {
 
   # ---- What the cycles say about caching (ADR 0008) ----------------------
   #
-  # `link.cycles` was built to make ADR 0008's claim usable — a unit is a
+  # `link.cycles` was built to make ADR 0008's claim usable: a unit is a
   # natural memoization unit unless it sits in a cycle, in which case the cycle
-  # is. Measuring it is what showed the claim is far weaker than it reads, so
+  # is. Measuring it is what showed the claim is weaker than it reads, so
   # these numbers are pinned: they are the argument, and a change in them is a
   # change in what caching could ever buy.
 
   # The small link's whole core is *one* component. The README called this "two
   # mutual cycles", which is true of the edge pairs and understates the result:
-  # nginx is in both, so they are one component — and the databases join it
+  # nginx is in both, so they are one component, and the databases join it
   # through `networking`'s collection, so five of five units are one unit.
   testTheSmallLinkIsOneComponent = {
     expr = nixos.link.cycles;
@@ -727,10 +728,10 @@ lib.runTests {
   # caching would buy almost nothing on this link as it is structured.
   #
   # The cause is structural rather than accidental, and it is ADR 0001's own
-  # design: a namespace with an owner means one floe collecting from everyone,
-  # and everyone reaching that floe back through the proxy. An eval edge is
-  # per *hole*, while the dependency it stands for is per *field* — nginx reads
-  # `NETWORK.domain`, which does not depend on the port collection at all. The
+  # design: a namespace with an owner means one floe collecting from every peer,
+  # and those peers reaching that floe back through the proxy. An eval edge is
+  # per *hole*, while the dependency it stands for is per *field*: nginx reads
+  # `NETWORK.domain`, which does not depend on the port collection. The
   # cycle is real at hole granularity and would dissolve at field granularity,
   # which is where a future answer would have to look.
   testTheFleetIsOneComponentOfTwentySix = {

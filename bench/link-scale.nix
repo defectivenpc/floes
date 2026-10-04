@@ -11,7 +11,7 @@
 # isolates how much of the cost that second evaluation is.
 #
 # `chain` separates two confounds. With it, each floe folds its predecessor's
-# value into its own, which is realistic but builds strings of growing length —
+# value into its own, which is realistic but builds strings of growing length:
 # quadratic in total characters, independent of anything the linker does.
 # Without it, no floe requires anything, so what is left is the per-floe
 # evaluation plus whatever the linker costs to resolve and collect n units.
@@ -20,7 +20,7 @@
   n,
   withInputs ? true,
   chain ? true,
-  # Whether a body actually folds its predecessor's value into its own. `chain`
+  # Whether a body folds its predecessor's value into its own. `chain`
   # decides how many holes the linker resolves; `fold` decides whether the values
   # flowing through them grow.
   #
@@ -32,8 +32,8 @@
   # concatenation.
   #
   # It is still worth having as an axis: a 1000-deep chain where every floe
-  # accumulates its predecessors is not a real link — real ones are shallow and
-  # wide — but the flag is what proves the quadratic belongs to the benchmark.
+  # accumulates its predecessors is not a real link, since real ones are shallow
+  # and wide, but the flag is what proves the quadratic belongs to the benchmark.
   fold ? false,
 
   # How heavy each floe's *body* is: how many fields its output schema declares
@@ -52,9 +52,9 @@
   inputCount ? 3,
 
   # Which body form. `modules` runs the floe's module list in its own
-  # `lib.evalModules`, which is what buys the module system's merge inside a floe
-  # — and what makes hosting an existing NixOS module possible at all. `body` is
-  # a plain function and pays none of it.
+  # `lib.evalModules`, which is what buys the module system's merge inside a
+  # floe and what makes hosting an existing NixOS module possible. `body` is a
+  # plain function and pays none of it.
   #
   # Neither form avoids `checkInputs` (`lib/floe.nix`), a *separate*
   # `evalModules` that runs at instantiate time purely to type-check what the
@@ -106,7 +106,7 @@ let
     i:
     let
       # Reading an input is what forces `checkInputs`, and so what makes the
-      # second `evalModules` per floe actually get paid for.
+      # second `evalModules` per floe gets paid for.
       # Every declared input, concatenated. A real floe reads the inputs it
       # declares; reading one and letting `checkInputs`' own `deepSeq` force the
       # rest would measure the deepSeq instead of the floe.

@@ -7,8 +7,8 @@
 #
 # It also closes the cycle the whole design has to survive: nginx requires
 # NETWORK, and networking collects nginx's PORT_CLAIM. Under stock NixOS
-# laziness that is fine, and it is fine here, because nginx reads `domain` —
-# which comes from networking's inputs, not from the collection. Read
+# laziness that is fine, and it is fine here, because nginx reads `domain`,
+# which comes from networking's inputs rather than from the collection. Read
 # `openPorts` instead and it recurses; see `broken.nix`.
 {
   lib,
@@ -24,7 +24,7 @@ floe.mkFloe {
   name = "nginx";
   summary = "Reverse proxy, routing whatever hostnames its peers claim.";
 
-  # Writes fixed paths, so two of it would silently merge into one.
+  # Writes fixed paths, so two of it would merge into one without a word.
   singleton = true;
 
   requires.network = sigs.NETWORK;
@@ -61,10 +61,10 @@ floe.mkFloe {
 
         routes = config.floe.collects.routes;
 
-        # The owner's merge policy, again — and this one is a guard rather than a
-        # union. `mapAttrs'` on colliding names silently keeps one, so twenty
-        # workloads claiming the same subdomain would produce one virtual host
-        # and nineteen workloads nobody can reach. Exactly the class of bug the
+        # The owner's merge policy, again, and this one is a guard rather than a
+        # union. `mapAttrs'` on colliding names keeps one without a word, so
+        # twenty workloads claiming the same subdomain would produce one virtual
+        # host and nineteen workloads no request reaches. The class of bug the
         # stock module system has no place to catch.
         claimed = lib.groupBy (r: r.subdomain) (lib.attrValues routes);
         duplicates = lib.filterAttrs (_: rs: lib.length rs > 1) claimed;

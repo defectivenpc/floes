@@ -5,8 +5,8 @@
 # its peers, and there is no other way to learn who exists. In the fleet link it
 # ends up with twenty members.
 #
-# Its merge is not a union or a conflict check — it is a fold into one config
-# file's scrape stanzas, keyed by the unit that asked. Nothing here has to know
+# Its merge is a fold into one config file's scrape stanzas, keyed by the unit
+# that asked, rather than a union or a conflict check. Nothing here has to know
 # which workloads exist, and adding one does not touch this file.
 {
   lib,
@@ -22,7 +22,7 @@ floe.mkFloe {
   name = "metrics";
   summary = "Prometheus, scraping whichever peers asked to be scraped.";
 
-  # Writes fixed paths, so two of it would silently merge into one.
+  # Writes fixed paths, so two of it would merge into one without a word.
   singleton = true;
 
   inputs.interval = lib.mkOption {

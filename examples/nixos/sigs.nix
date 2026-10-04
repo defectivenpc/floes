@@ -35,7 +35,7 @@ rec {
       database = T.str;
     };
     # No role name: the role is the claimant's unit name, which is unique in the
-    # link by construction. Same reasoning as a workload's subdomain — a name the
+    # link by construction. Same reasoning as a workload's subdomain: a name the
     # deployer would otherwise have to invent and keep unique by hand.
   };
 
@@ -72,9 +72,9 @@ rec {
       externalInterface = T.str;
 
       # Derived from the PORT_CLAIM collection this floe folds. A peer that
-      # contributes a claim *and* reads this would close the loop — computing its
+      # contributes a claim *and* reads this would close the loop: computing its
       # claim needs the fold, and the fold needs its claim. `link` refuses the
-      # field to exactly those peers, before anything evaluates, so what used to
+      # field to those peers, before anything evaluates, so what used to
       # be `infinite recursion encountered` is now an error naming both floes and
       # the collection.
       #
@@ -87,9 +87,9 @@ rec {
 
   # A retrieval signature for this domain, and the whole point of the two
   # examples having one each: `DATABASE.password` is `T.deferred T.str` in both,
-  # and the mechanism is entirely different. A Kubernetes provider answers it
+  # and the mechanisms have nothing in common. A Kubernetes provider answers it
   # with `k8s.secretRef`; here it is a file on the host. One signature, two
-  # mechanisms — which is only possible because the *provider* declares the
+  # mechanisms, which is only possible because the *provider* declares the
   # retrieval rather than the signature's field doing it.
   FILE_REF = floe.mkSig {
     name = "nixos.fileRef";
@@ -113,30 +113,30 @@ rec {
       port = T.port;
 
       # Where per-consumer credentials live. A claimant reads
-      # `${credentialDir}/${floe.name}` — its own role's password, written by the
+      # `${credentialDir}/${floe.name}`, its own role's password, written by the
       # provider when it provisioned that role.
       #
       # A directory and a convention rather than a checked map, and that is forced
-      # rather than chosen. The obvious design — `credentials` as an attrset keyed
-      # by unit, so a consumer reads `db.credentials.<me>` — is derived from the
+      # rather than chosen. The obvious design, `credentials` as an attrset keyed
+      # by unit so a consumer reads `db.credentials.<me>`, comes out of the
       # DB_ROLE_CLAIM collection, so a claimant reading it would be a cycle through
-      # the fold. `T.derivedFrom` would refuse it, correctly. The directory is what
+      # the fold. `T.derivedFrom` would refuse it, and should. The directory is what
       # is left, and it works because a consumer already knows its own name.
       credentialDir = T.str;
 
       # The instance's own superuser credential, for a consumer that needs the
-      # whole server rather than one database — a backup, a migration runner.
+      # whole server rather than one database: a backup, a migration runner.
       # Not per-consumer, so this one *can* be a single field.
       superuserPasswordFile = T.str;
 
       # And the secret itself, which does not exist until the server has started
       # and generated it. A consumer that interpolates this into NixOS config gets
-      # an eval error naming this instance as the source — and with two instances,
+      # an eval error naming this instance as the source, and with two instances,
       # naming *which* one.
       superuserPassword = T.deferred T.str;
     };
 
-    # Deliberately absent: `dataDir`. Postgres knows it, and in stock NixOS
+    # Absent on purpose: `dataDir`. Postgres knows it, and in stock NixOS
     # anything that wants it reads `config.services.postgresql.dataDir`.
     # Sealing makes that impossible, so wanting it becomes a request to widen
     # the signature a conversation, instead of a coupling nobody declared.
@@ -146,7 +146,7 @@ rec {
     # Note what sealing cannot do, which the consumers used to demonstrate by
     # accident: it stops a consumer reading an *undeclared field*, not a consumer
     # hardcoding a string. Both consumers once wrote `/webapp` as the database
-    # name, a fact this signature never promised — so the database a claimant gets
+    # name, a fact this signature never promised, so the database a claimant gets
     # is now in DB_ROLE_CLAIM, where it is declared and checked.
   };
 

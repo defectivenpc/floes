@@ -23,7 +23,7 @@ floe.mkFloe {
   name = "networking";
   summary = "A linux machine's networking.*: identity, and the ports its peers claim.";
 
-  # Writes fixed paths, so two of it would silently merge into one.
+  # Writes fixed paths, so two of it would merge into one without a word.
   singleton = true;
 
   inputs = {

@@ -1,6 +1,6 @@
 # The small link: what a deployer writes, and what the README shows.
 #
-# Measured — `deployerCost` in `default.nix` counts the meaningful lines here and
+# Measured: `deployerCost` in `default.nix` counts the meaningful lines here and
 # a test fails if it grows. Ergonomics is the question a mechanism demo never
 # asks itself, so this file asks it.
 #
@@ -9,9 +9,9 @@
 # workloads claim, the ordering from the signatures.
 #
 # Two Postgres instances, which stock NixOS cannot express with its own module
-# at all. `webapp` has to say which one it means, because `requires` is
-# exactly-one and there are now two answers — that is the one line multi-instance
-# costs the deployer.
+# `webapp` has to say which one it means, because `requires` is exactly-one and
+# there are now two answers: that is the one line multi-instance costs the
+# deployer.
 { floes }:
 
 {

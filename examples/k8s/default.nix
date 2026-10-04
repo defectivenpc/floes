@@ -18,7 +18,7 @@ let
     # A retrieval signature: where a value will be readable once it exists, not
     # what it is. Core checks a ref against this shape and records the name; it
     # never learns what a Secret is. A backend implements the reading, and there
-    # may be several — one that uses the API, one that shells out to kubectl.
+    # may be several: one that uses the API, one that shells out to kubectl.
     SECRET_REF = floe.mkSig {
       name = "k8s.secretRef";
       canonicalName = "secretRef";
@@ -88,7 +88,7 @@ let
         provides.issuer = {
           name = "cluster-ca";
           # cert-manager knows where its CA lands, because cert-manager is what
-          # puts it there. The consumer never learns this — it reads
+          # puts it there. The consumer never learns this: it reads
           # `issuer.caFingerprint` and a backend fills it in.
           caFingerprint = floe.mkDeferred sigs.SECRET_REF {
             namespace = "cert-manager";
