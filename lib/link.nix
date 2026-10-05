@@ -490,9 +490,24 @@ rec {
                     inherit (i) hole;
                     signature = i.sig.name;
                   }) injectedMeta;
-                  inherit (inst.def.inclusion) defaults policies;
+                  inherit (inst.def.inclusion) policies;
                   inherit catalogue;
                   withinInclusion = u;
+
+                  # An injected unit is a provider the deployer already named:
+                  # it exists *because* the parent resolved the hole it carries,
+                  # and for an optional hole that resolution is the decision
+                  # ADR 0009 requires. Without this, a parent filling an
+                  # inclusion's optional hole produced an inner link refusing
+                  # it for having a provider no one named — the decision made
+                  # one level up, invisible one level down.
+                  #
+                  # The inclusion's own `defaults` win, because an author
+                  # saying which provider a hole means inside is saying it
+                  # about the units inside.
+                  defaults =
+                    lib.mapAttrs' (unitName: i: lib.nameValuePair i.sig.name unitName) injectedMeta
+                    // inst.def.inclusion.defaults;
                 };
 
             # What an inclusion offers outward: one of its units' provides,

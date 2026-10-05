@@ -85,3 +85,16 @@ Migration is not mechanical and `docs/migrating.md` leads with that. A lab
 that got OIDC and telemetry backends by presence will error until each link
 says what it meant, which is the intended outcome and will read as a
 regression to anyone who has not read this.
+
+## A parent filling one has named it
+
+An inclusion may declare an optional hole, and when a parent fills it the
+linker injects a unit inside carrying that value. The unit inside then saw a
+provider nobody had named, and this rule refused it — so an optional hole on
+an inclusion could be declared, wired by the parent, and still fail, with
+the decision made one level up and invisible one level down.
+
+The injection _is_ the naming. A synthetic unit exists only because the
+parent resolved the hole it carries, so the inner link is given a default
+naming it. An inclusion's own `defaults` still win, because an author saying
+which provider a hole means inside is saying it about the units inside.

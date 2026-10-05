@@ -1425,6 +1425,43 @@ in
     expected = [ "wide" ];
   };
 
+  # A parent filling an inclusion's *optional* hole is the decision ADR 0009
+  # asks for, said one level up. Without it being carried inward, the inner
+  # link saw a provider nobody had named and refused it — so an optional hole
+  # on an inclusion could be declared, wired by the parent, and still fail.
+  testAParentFillingAnOptionalHoleCountsAsNamingIt = {
+    expr =
+      let
+        reader = floe.mkFloe {
+          name = "reader";
+          summary = "Fixture: reads an optional hole.";
+          optional.wide = WIDE;
+          out.opaque = OPAQUE;
+          body =
+            { requires, ... }:
+            {
+              out.opaque.sawIt = requires.wide != null;
+            };
+        };
+
+        enclosing = floe.mkFloe {
+          name = "enclosing";
+          summary = "Fixture: an inclusion with an optional hole.";
+          optional.wide = WIDE;
+          units = _: { reader = reader.instantiate { }; };
+        };
+
+        link = floe.link {
+          units = {
+            insider = insider.instantiate { };
+            env = (enclosing.instantiate { }).bind { wide = "insider"; };
+          };
+        };
+      in
+      link.out.OPAQUE."env/reader".sawIt;
+    expected = true;
+  };
+
   # Which floe each unit is an instance of, at any depth. A unit name is the
   # deployer's: `env` is an `enclosure` and `env/insider` is an `insider`, and
   # the definition behind an inner unit is not reachable through the inclusion
