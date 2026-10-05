@@ -10,7 +10,13 @@ and the consequence was that anything deriving a per-unit fact from a
 resolution lost it for everything inside an inclusion.
 
 `wiring.{one,optional,all}` are now keyed by the unit whose hole it is at
-any depth, with each provider's `instName` qualified the same way.
+any depth, with each provider's `instName` qualified the same way. So is
+`floeNames`, which is new and answers the other question a per-unit consumer
+asks: _which floe is this unit an instance of._ A unit name is the
+deployer's, an inner unit's definition is not reachable through the
+inclusion holding it, and a rule of the form "every floe declares the images
+its manifests pull" needs the name to find the declaration it is checking
+against.
 
 ## Why it is the parent's business at all
 
@@ -49,9 +55,9 @@ collection can be answered from inside and outside at once.
 ## Consequences
 
 One level of qualification reaches every depth, because an inner result's
-own `wiring` has already been through it — the same recursion `leaves` and
-`deferredSites` rely on, and the reason the test for this covers two levels
-rather than one.
+own `wiring` and `floeNames` have already been through it — the same
+recursion `leaves` and `deferredSites` rely on, and the reason the test for
+this covers two levels rather than one.
 
 A policy that iterates `wiring` now sees inner units. That is the point, but
 it is a behaviour change for any policy written against the flat keys: one

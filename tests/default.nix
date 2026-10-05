@@ -1425,6 +1425,21 @@ in
     expected = [ "wide" ];
   };
 
+  # Which floe each unit is an instance of, at any depth. A unit name is the
+  # deployer's: `env` is an `enclosure` and `env/insider` is an `insider`, and
+  # the definition behind an inner unit is not reachable through the inclusion
+  # holding it, so a consumer checking a per-floe rule has nowhere else to read
+  # this from.
+  testEveryUnitSaysWhichFloeItIs = {
+    expr = nestedLink.floeNames;
+    expected = {
+      minter = "minter";
+      env = "enclosure";
+      "env/insider" = "insider";
+      "env/emitter" = "emitter";
+    };
+  };
+
   # Two levels, because one level cannot tell qualification that recurses from
   # qualification that happens to work once: `env/nested/emitter` is reached by
   # the inner result having already qualified `nested/emitter`.

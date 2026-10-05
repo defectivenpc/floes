@@ -248,10 +248,12 @@ refused, for the reason two providers of one signature are.
 
 Every per-unit view in the result spans the nesting the same way: `out` by
 that path, `phases` by the leaves at any depth, `graph.nodes` and the eval
-edges by the nodes at any depth, and `wiring` by the unit whose hole it is
-at any depth, with each provider's `instName` qualified too. The units an
-inclusion injects to carry its parent's values inward appear in none of
-them. Sealing governs values, not the graph.
+edges by the nodes at any depth, `wiring` by the unit whose hole it is at
+any depth with each provider's `instName` qualified too, and `floeNames` by
+unit at any depth — which floe each one is an instance of, since a unit name
+is the deployer's and an inner definition is not otherwise reachable. The
+units an inclusion injects to carry its parent's values inward appear in
+none of them. Sealing governs values, not the graph.
 
 Flattening is not a no-op: linking `A, B` as an inclusion and then with `C`
 is not linking `A, B, C`, because the boundary seals. `singleton` stays per

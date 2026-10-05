@@ -892,6 +892,29 @@ rec {
           [ u ]
       ) instNames;
 
+      # What each unit is an instance of, at any depth.
+      #
+      # The one per-unit fact a parent cannot derive for itself: an inner unit's
+      # *definition* is not reachable through the inclusion holding it, by
+      # design, and a consumer with a per-floe rule — "every floe declares the
+      # images its manifests pull" — needs the name to find the declaration it
+      # is checking against. A unit name is the deployer's and says nothing
+      # about which floe it is.
+      floeNames = lib.foldl' lib.mergeAttrs { } (
+        map (
+          u:
+          if isSynthetic u then
+            { }
+          else
+            {
+              ${u} = (getInstance u).def.name;
+            }
+            // lib.optionalAttrs (isInclusion u) (
+              lib.mapAttrs' (n: v: lib.nameValuePair (qualify u n) v) fixed.${u}.inner.floeNames
+            )
+        ) instNames
+      );
+
       # The eval edges from inside an inclusion, and only those. A deploy edge is
       # derived from a token in output, `deferredSites` is already flattened to
       # every depth, and `deployEdges` below derives from that, so taking the
@@ -991,6 +1014,8 @@ rec {
         # Every unit that emits, at any depth, which is what a parent recurses
         # through when this link is the body of one of its inclusions.
         leaves = leafNames;
+
+        inherit floeNames;
 
         graph = {
           nodes = lib.unique nodeNames;
