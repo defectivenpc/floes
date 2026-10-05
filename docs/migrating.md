@@ -24,8 +24,11 @@ name, dispatching on whether the argument is itself a type. `mkSig` wraps an
 attrset of `T`s in `T.record` for you, so `fields = T.record { … }` and
 `fields = { … }` both work and the second is the one to write.
 
-`link`'s result is unchanged except that `wiring.scope` is gone and
-`wiring.all` is new. `wiring.optional` is still there.
+`link`'s result is unchanged except that `wiring.scope` is gone,
+`wiring.all` is new, and all three arities are keyed by the unit whose hole
+it is at any depth — so a link holding an inclusion has entries for the
+units inside it, under `<inclusion>/<innerUnit>`. `wiring.optional` is still
+there.
 
 ## Removed, with reasons
 

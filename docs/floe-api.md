@@ -246,6 +246,13 @@ and the floe's own under its own name, so the two cannot collide and there
 is no merge rule. A provide answered by an export _and_ by the body is
 refused, for the reason two providers of one signature are.
 
+Every per-unit view in the result spans the nesting the same way: `out` by
+that path, `phases` by the leaves at any depth, `graph.nodes` and the eval
+edges by the nodes at any depth, and `wiring` by the unit whose hole it is
+at any depth, with each provider's `instName` qualified too. The units an
+inclusion injects to carry its parent's values inward appear in none of
+them. Sealing governs values, not the graph.
+
 Flattening is not a no-op: linking `A, B` as an inclusion and then with `C`
 is not linking `A, B, C`, because the boundary seals. `singleton` stays per
 link, because two inner links are two apply targets.

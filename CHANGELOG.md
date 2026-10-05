@@ -39,6 +39,22 @@ release; the ADRs keep their reasoning.
   than the withdrawn version had.
   [ADR 0006](docs/adr/0006-a-link-can-be-a-unit.md)
 
+- **`wiring` is keyed by the unit whose hole it is, at any depth.** An
+  inclusion's inner wiring surfaces at the parent under the qualified names
+  its output, its nodes and its edges already arrive under, with each
+  provider's `instName` qualified the same way. It was the one per-unit view
+  that stopped at the boundary, so a unit inside an inclusion had no entry,
+  and anything deriving a per-unit fact from a resolution — an installer
+  ordering one component against the provide it reads — lost it for
+  everything inside one.
+
+  A synthetic unit appears on neither side, as a provider or as a key, for
+  the reason the edge to one is dropped: the value is the parent's, and the
+  parent's own entry against its own hole says so in terms of a node that
+  exists. `collects` filters the list rather than dropping the hole, since
+  one collection can be answered from inside and outside at once.
+  [ADR 0010](docs/adr/0010-an-inclusions-inner-wiring-surfaces-at-the-parent.md)
+
 - **`collects`**, a hole arity taking every provider in the link, keyed by
   the unit that provided it, and possibly empty. The consumer folds it:
   nothing merges in the linker, so there are no lattice types and no

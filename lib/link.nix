@@ -920,6 +920,55 @@ rec {
           [ ]
       ) instNames;
 
+      # An inclusion's inner wiring, under the qualified names its output, its
+      # nodes and its edges already arrive under.
+      #
+      # `wiring` answers "which provider filled this hole", and a unit inside
+      # an inclusion had no entry at all: the parent's `wiring.one.<inclusion>`
+      # describes the inclusion's own holes, not its units'. A consumer that
+      # derives anything per-unit from a resolution — an installer deriving one
+      # component's dependency on another's — lost it for every unit inside.
+      #
+      # Both halves are qualified, for the reason `innerEdges` qualifies both
+      # ends of an edge: the consumer is an inner unit, and so is the provider.
+      #
+      # A synthetic unit appears on neither side. Answering a hole, it stands
+      # for a value the parent supplied, and the parent's own entry against its
+      # own hole says that already in terms of a node that exists — exactly why
+      # the edge to one is dropped too. Keyed as a consumer, it is a unit
+      # nothing else mentions with no holes to report. Membership in the inner
+      # link's nodes is the test on both sides, because the synthetic units are
+      # the only units that set excludes. For `collects` the list is filtered
+      # rather than the hole dropped, since a collection can be answered from
+      # inside and outside at once.
+      #
+      # One level of qualification reaches every depth: the inner result's own
+      # `wiring` has already been through this.
+      innerWiringOf =
+        u:
+        let
+          innerNodes = fixed.${u}.inner.graph.nodes;
+          held = p: p != null && lib.elem p.instName innerNodes;
+          lift = p: p // { instName = qualify u p.instName; };
+          byUnit =
+            f: byName:
+            lib.mapAttrs' (n: holes: lib.nameValuePair (qualify u n) (f holes)) (
+              lib.filterAttrs (n: _: lib.elem n innerNodes) byName
+            );
+          inner = fixed.${u}.inner.wiring;
+        in
+        {
+          one = byUnit (holes: lib.mapAttrs (_: lift) (lib.filterAttrs (_: held) holes)) inner.one;
+          optional = byUnit (holes: lib.mapAttrs (_: lift) (lib.filterAttrs (_: held) holes)) inner.optional;
+          all = byUnit (lib.mapAttrs (_: ps: map lift (lib.filter held ps))) inner.all;
+        };
+
+      withInnerWiring =
+        arity: top:
+        lib.foldl' lib.mergeAttrs top (
+          map (u: (innerWiringOf u).${arity}) (lib.filter isInclusion instNames)
+        );
+
       # ---- Result and policies ---------------------------------------------
 
       result = {
@@ -964,10 +1013,12 @@ rec {
         # lookup rather than a walk.
         deferredRetrievals = lib.unique (map (s: s.token.retrieval) deferredSites);
 
+        # Keyed by the unit whose hole it is, at any depth, which is what the
+        # qualification above makes possible.
         wiring = {
-          one = wiringOne;
-          optional = wiringOptional;
-          all = wiringAll;
+          one = withInnerWiring "one" wiringOne;
+          optional = withInnerWiring "optional" wiringOptional;
+          all = withInnerWiring "all" wiringAll;
         };
       };
 

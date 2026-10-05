@@ -1383,6 +1383,71 @@ in
     };
   };
 
+  # `wiring` is keyed by the unit whose hole it is, at any depth. Without the
+  # qualification a unit inside an inclusion had no entry, so anything deriving
+  # a per-unit fact from a resolution — an installer ordering one component
+  # against another — had nothing to read for the units inside.
+  #
+  # Both halves are qualified: `env/emitter` is the consumer and `env/insider`
+  # is what answered it. The inclusion's own entry stays, because its hole is a
+  # real fact about it.
+  testAnInnerUnitsWiringIsQualifiedAtTheParent = {
+    expr = {
+      units = lib.sort (a: b: a < b) (lib.attrNames nestedLink.wiring.one);
+      inner = nestedLink.wiring.one."env/emitter";
+      inclusion = nestedLink.wiring.one.env;
+    };
+    expected = {
+      units = [
+        "env"
+        "env/emitter"
+        "env/insider"
+        "minter"
+      ];
+      inner.wide = {
+        instName = "env/insider";
+        provideName = "wide";
+      };
+      inclusion.deferredThing = {
+        instName = "minter";
+        provideName = "deferredThing";
+      };
+    };
+  };
+
+  # The half that must *not* appear. `emitter` requires `deferredThing` too,
+  # and what answered it inside is the synthetic unit carrying the parent's
+  # value — a node nothing else mentions. The parent's own entry above says
+  # the same thing in terms of a node that exists, so this one is dropped,
+  # exactly as the edge to a synthetic unit is.
+  testAHoleAnsweredFromOutsideIsNotAnInnerEntry = {
+    expr = lib.attrNames nestedLink.wiring.one."env/emitter";
+    expected = [ "wide" ];
+  };
+
+  # Two levels, because one level cannot tell qualification that recurses from
+  # qualification that happens to work once: `env/nested/emitter` is reached by
+  # the inner result having already qualified `nested/emitter`.
+  testInnerWiringQualifiesAtEveryDepth = {
+    expr = {
+      units = lib.sort (a: b: a < b) (lib.attrNames twoDeep.wiring.one);
+      deepest = twoDeep.wiring.one."env/nested/emitter".wide;
+    };
+    expected = {
+      units = [
+        "env"
+        "env/nested"
+        "env/nested/emitter"
+        "env/nested/insider"
+        "minter"
+      ];
+      deepest = {
+        instName = "env/nested/insider";
+        provideName = "wide";
+      };
+    };
+  };
+
   # The cost of declaring an inclusion's holes rather than inferring them, which
   # Backpack does and this cannot: `units` is a function of `inputs`, so what is
   # inside is not known until something evaluates, and a floe's interface has to
