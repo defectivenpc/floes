@@ -22,6 +22,7 @@ in
   inherit (types) checkValue isDeferredToken;
   inherit (interfaces)
     mkSig
+    project
     narrows
     renderInputs
     ;

@@ -1739,4 +1739,132 @@ in
       (floe.link { units.a = f.instantiate { }; }).deferredSites;
     expected = [ ];
   };
+
+  # ---- projection, and refusing to cross -------------------------------
+  #
+  # `WIDE` above is the fixture for both: it has a field a peer outside has no
+  # use for, which is the whole reason a crossing form exists.
+
+  # A projection is the signature with fields dropped, and it satisfies
+  # `narrows` because it was built from the thing it narrows rather than
+  # written beside it. The twin it replaces had to be checked.
+  testAProjectionNarrowsByConstruction =
+    let
+      p = floe.project {
+        signature = WIDE;
+        fields = [ "v" ];
+      };
+    in
+    {
+      expr = {
+        fields = lib.attrNames p.fields;
+        mismatches = floe.narrows WIDE p;
+
+        # Carried over, and not as a convenience: resolution matches a hole to
+        # a provide by name, so a projection that renamed anything would stop
+        # resolving against the thing it is a view of.
+        inherit (p) name canonicalName;
+      };
+      expected = {
+        fields = [ "v" ];
+        mismatches = [ ];
+        name = "WIDE";
+        canonicalName = "wide";
+      };
+    };
+
+  # An allowlist, so a field added to `WIDE` later stays inside until someone
+  # says otherwise — and a name that is not there is refused rather than
+  # narrowing to nothing, which would resolve and then fail where it is read.
+  testAProjectionRefusesAFieldThatIsNotThere = {
+    expr = fails (
+      floe.project {
+        signature = WIDE;
+        fields = [
+          "v"
+          "notAField"
+        ];
+      }
+    );
+    expected = true;
+  };
+
+  # A signature describing something that exists in exactly one place cannot
+  # be the signature of an export. ADR 0012.
+  testASignatureThatCannotCrossIsRefusedAsAnExport =
+    let
+      LOCAL_ONLY = floe.mkSig {
+        name = "LOCAL_ONLY";
+        canonicalName = "localOnly";
+        description = "Fixture: a thing that exists in exactly one place.";
+        mayExport = false;
+        fields.v = T.str;
+      };
+
+      holder = floe.mkFloe {
+        name = "holder";
+        summary = "Fixture: provides something that cannot leave.";
+        provides.localOnly = LOCAL_ONLY;
+        body = _: { provides.localOnly.v = "here"; };
+      };
+
+      leaky = floe.mkFloe {
+        name = "leaky";
+        summary = "Fixture: tries to export something that cannot leave.";
+        provides.localOnly = LOCAL_ONLY;
+        exports.localOnly = "holder";
+        units = _: { holder = holder.instantiate { }; };
+      };
+    in
+    {
+      expr = fails (floe.link { units.leaky = leaky.instantiate { }; }).provides;
+      expected = true;
+    };
+
+  # And it is an ordinary provide of an ordinary unit, because refusing it
+  # everywhere would refuse the thing it is for. Checked where `exports`
+  # resolves, not at `mkSig`.
+  testASignatureThatCannotCrossIsStillAnOrdinaryProvide =
+    let
+      LOCAL_ONLY = floe.mkSig {
+        name = "LOCAL_ONLY";
+        canonicalName = "localOnly";
+        description = "Fixture: a thing that exists in exactly one place.";
+        mayExport = false;
+        fields.v = T.str;
+      };
+
+      holder = floe.mkFloe {
+        name = "holder";
+        summary = "Fixture: provides something that cannot leave.";
+        provides.localOnly = LOCAL_ONLY;
+        body = _: { provides.localOnly.v = "here"; };
+      };
+
+      SEEN = floe.mkSig {
+        name = "fixture.seen";
+        canonicalName = "fixtureSeen";
+        description = "Fixture: output holding what a reader read.";
+        fields.seen = T.str;
+      };
+
+      reader = floe.mkFloe {
+        name = "reader";
+        summary = "Fixture: reads it from a sibling in the same link.";
+        requires.localOnly = LOCAL_ONLY;
+        out.fixtureSeen = SEEN;
+        body = { requires, ... }: { out.fixtureSeen.seen = requires.localOnly.v; };
+      };
+
+      linked = floe.link {
+        units = {
+          holder = holder.instantiate { };
+          reader = reader.instantiate { };
+        };
+      };
+    in
+    {
+      expr = linked.out."fixture.seen".reader.seen;
+      expected = "here";
+    };
 }

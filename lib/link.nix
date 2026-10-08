@@ -518,6 +518,10 @@ rec {
               let
                 parts = lib.splitString "/" ref;
                 iu = lib.head parts;
+
+                # The signature the *author* declared for this export, not the
+                # inner provide's. The choice is what `mayExport` is about.
+                sigOfExport = inst.def.provides.${exportName};
                 ps =
                   inner.provides.${iu} or (throw (
                     "inclusion '${u}': exports '${exportName}' from unit '${iu}', which is not "
@@ -525,7 +529,15 @@ rec {
                   ));
                 names = lib.attrNames ps;
               in
-              if lib.length parts > 1 then
+              if !(sigOfExport.mayExport or true) then
+                throw (
+                  "inclusion '${u}': exports '${exportName}' as '${sigOfExport.name}', which "
+                  + "cannot cross a boundary. It describes something that exists in exactly one "
+                  + "place, so a peer given it would hold a reference to something that is not "
+                  + "there. Keep it inside, or export a signature that says what a reader "
+                  + "outside can actually use."
+                )
+              else if lib.length parts > 1 then
                 ps.${lib.elemAt parts 1} or (throw (
                   "inclusion '${u}': exports '${exportName}' from '${ref}', and '${iu}' has no "
                   + "provide '${lib.elemAt parts 1}'. It provides: "
