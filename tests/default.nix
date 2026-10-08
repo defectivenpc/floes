@@ -1867,4 +1867,62 @@ in
       expr = linked.out."fixture.seen".reader.seen;
       expected = "here";
     };
+
+  # ---- what backs a provision an inclusion re-exports -------------------
+  #
+  # `enclosure` re-exports `narrow` from `insider`. A consumer outside it
+  # resolves against the inclusion, which is who promised the value — and
+  # anything reasoning about where the thing *lives* needs the unit inside.
+  # Without it a backend deriving install order has no target and the edge
+  # disappears, which is ADR 0013.
+  testAnInclusionSaysWhatBacksItsExport =
+    let
+      consumer = floe.mkFloe {
+        name = "outside";
+        summary = "Fixture: reads an inclusion's export from beside it.";
+        requires.narrow = NARROW;
+        body = _: { };
+      };
+
+      linked = floe.link {
+        units = {
+          env = enclosure.instantiate { };
+          outside = consumer.instantiate { };
+          thing = minter.instantiate { };
+        };
+      };
+
+      p = linked.wiring.one.outside.narrow;
+    in
+    {
+      expr = {
+        # Who promised it: the inclusion, unchanged.
+        inherit (p) instName;
+
+        # Where it lives: the unit inside, qualified — and the provide's name
+        # *there*, which is not the export's. `exports.narrow = "insider"`
+        # renames it on the way out, and a backend looking the thing up has to
+        # ask for what the inner unit calls it.
+        inherit (p) backedBy backedProvide;
+      };
+      expected = {
+        instName = "env";
+        backedBy = "env/insider";
+        backedProvide = "wide";
+      };
+    };
+
+  # And a plain provider carries no backing, because there is nothing between
+  # the promise and the thing. A reader takes `backedBy or instName`.
+  testAPlainProviderCarriesNoBacking = {
+    expr =
+      (floe.link {
+        units = {
+          env = enclosure.instantiate { };
+          thing = minter.instantiate { };
+        };
+      }).wiring.one.env.deferredThing
+        ? backedBy;
+    expected = false;
+  };
 }

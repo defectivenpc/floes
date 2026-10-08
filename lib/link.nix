@@ -992,6 +992,80 @@ rec {
       # rather than the hole dropped, since a collection can be answered from
       # inside and outside at once.
       #
+      # exportOriginOf :: UnitName -> ProvideName -> { instName; provideName; }
+      #
+      # Which unit actually *implements* a provision, when the unit providing it
+      # is an inclusion re-exporting from inside. `exports` names that unit, so
+      # the answer is written down — it was just not reachable from the result,
+      # which is all a consumer gets.
+      #
+      # It matters for anything that reasons about what a provision is backed
+      # by rather than who promises it. A backend deriving install order from
+      # the link graph asks the provider for its artifacts; an inclusion that
+      # only includes has none of its own, so the dependency silently had no
+      # target and the edge vanished. The consumer was then free to be
+      # installed before the thing it needs, with nothing in the graph saying
+      # otherwise. ADR 0013.
+      #
+      # One level of qualification reaches every depth, because the inner
+      # result answers for its own inclusions — the same argument
+      # `innerWiringOf` below makes.
+      exportOriginOf =
+        u: provideName:
+        let
+          ref = (inclusionOf u).exports.${provideName} or null;
+          parts = lib.splitString "/" ref;
+          innerUnit = lib.head parts;
+          innerInst = fixed.${u}.innerUnits.${innerUnit} or null;
+
+          innerProvides = innerInst.def.provides or { };
+          innerProvide =
+            if lib.length parts > 1 then
+              lib.elemAt parts 1
+            else if lib.length (lib.attrNames innerProvides) == 1 then
+              lib.head (lib.attrNames innerProvides)
+            else
+              null;
+
+          deeper =
+            if innerInst != null && (innerInst.def.inclusion or null) != null && innerProvide != null then
+              fixed.${u}.inner.exportOriginOf innerUnit innerProvide
+            else
+              null;
+        in
+        if ref == null then
+          {
+            instName = u;
+            inherit provideName;
+          }
+        else if deeper != null then
+          {
+            instName = qualify innerUnit deeper.instName;
+            inherit (deeper) provideName;
+          }
+        else
+          {
+            instName = innerUnit;
+            provideName = if innerProvide != null then innerProvide else provideName;
+          };
+
+      # Every provider reference, told what backs it. `instName` is untouched —
+      # it is who promised the value, which is what resolution and every error
+      # message mean by a provider — and `backedBy` is where the thing lives.
+      withBacking =
+        p:
+        if p == null || !(isInclusion p.instName) then
+          p
+        else
+          let
+            origin = exportOriginOf p.instName p.provideName;
+          in
+          p
+          // {
+            backedBy = qualify p.instName origin.instName;
+            backedProvide = origin.provideName;
+          };
+
       # One level of qualification reaches every depth: the inner result's own
       # `wiring` has already been through this.
       innerWiringOf =
@@ -999,7 +1073,13 @@ rec {
         let
           innerNodes = fixed.${u}.inner.graph.nodes;
           held = p: p != null && lib.elem p.instName innerNodes;
-          lift = p: p // { instName = qualify u p.instName; };
+          lift =
+            p:
+            p
+            // {
+              instName = qualify u p.instName;
+            }
+            // lib.optionalAttrs (p ? backedBy) { backedBy = qualify u p.backedBy; };
           byUnit =
             f: byName:
             lib.mapAttrs' (n: holes: lib.nameValuePair (qualify u n) (f holes)) (
@@ -1067,10 +1147,18 @@ rec {
 
         # Keyed by the unit whose hole it is, at any depth, which is what the
         # qualification above makes possible.
+        inherit exportOriginOf;
+
+        # `withBacking` runs on this level's own wiring, before the inner
+        # levels are merged in: an inner reference's `instName` is a path and
+        # not a unit of this link, and it arrived backed already because the
+        # inner result went through the same step. `lift` qualifies both.
         wiring = {
-          one = withInnerWiring "one" wiringOne;
-          optional = withInnerWiring "optional" wiringOptional;
-          all = withInnerWiring "all" wiringAll;
+          one = withInnerWiring "one" (lib.mapAttrs (_: lib.mapAttrs (_: withBacking)) wiringOne);
+          optional = withInnerWiring "optional" (
+            lib.mapAttrs (_: lib.mapAttrs (_: withBacking)) wiringOptional
+          );
+          all = withInnerWiring "all" (lib.mapAttrs (_: lib.mapAttrs (_: map withBacking)) wiringAll);
         };
       };
 
