@@ -362,19 +362,24 @@ rec {
               instantiate =
                 supplied:
                 let
-                  inst = {
+                  # Built from the bindings rather than closing over one
+                  # instance, so `bind` is chainable. Closing over it made
+                  # every call fold onto `{ }`, which meant a second `.bind`
+                  # silently discarded the first — and a container that binds
+                  # a hole of its own on the way to placing a unit does
+                  # exactly that to whatever the deployer wrote.
+                  withBindings = bindings: {
                     __floeInstance = true;
-                    inherit def supplied;
+                    inherit def supplied bindings;
                     inputsChecked = checkInputs supplied;
-                    bindings = { };
 
                     # bind :: { Hole -> "<unit>" | "<unit>/<provide>" } -> instance
                     # Which provider a hole means, when the deployer has two. The
                     # author cannot say: a floe does not know its peers' names.
-                    bind = b: inst // { bindings = inst.bindings // b; };
+                    bind = b: withBindings (bindings // b);
                   };
                 in
-                inst;
+                withBindings { };
             }
           )
         )

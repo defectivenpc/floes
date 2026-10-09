@@ -75,6 +75,24 @@ let
     in
     floe.link { units.narcissus = u.instantiate { }; };
 
+  # A floe with a hole, for reading `bindings` off an instance directly. The
+  # accumulation is a property of `instantiate`, not of resolution, so it is
+  # checked without a link around it.
+  bindable = floe.mkFloe {
+    name = "bindable";
+    summary = "Fixture floe for a test suite.";
+    requires.issuance = SELF;
+    provides.echo = ECHO;
+    modules = [
+      (
+        { config, ... }:
+        {
+          config.floe.provides.echo.v = config.floe.requires.issuance.v;
+        }
+      )
+    ];
+  };
+
   # Two providers of one signature and a consumer that says which it means.
   # `bind` is the deployer's, because a floe cannot know its peers' names.
   twoIssuers =
@@ -584,6 +602,37 @@ in
   testABindingToANonProviderIsRefused = {
     expr = fails (twoIssuers { binding = "nobody"; }).provides;
     expected = true;
+  };
+
+  # `bind` is chainable, and it has to be: a container that places a unit
+  # binds a hole of its own on the way — catallaxy's lab binds a cluster's
+  # claim as it places the cluster — and whatever the deployer wrote has to
+  # survive that.
+  #
+  # It did not. `bind` closed over the instance it was read off, so every call
+  # folded onto `{ }` and a second one silently discarded the first. The hole
+  # the deployer named went unwired; for an *optional* one it went unwired
+  # with no ambiguity to report, which is the arity's whole point of failure.
+  testBindAccumulatesAcrossCalls = {
+    expr =
+      let
+        once = (bindable.instantiate { }).bind { issuance = "public"; };
+      in
+      (once.bind { other = "elsewhere"; }).bindings;
+    expected = {
+      issuance = "public";
+      other = "elsewhere";
+    };
+  };
+
+  # And on a hole both calls name, the later one wins — the nearer statement,
+  # which for the lab is the one it makes as it places the unit.
+  testTheLastBindingOfAHoleWins = {
+    expr =
+      (((bindable.instantiate { }).bind { issuance = "internal"; }).bind {
+        issuance = "public";
+      }).bindings.issuance;
+    expected = "public";
   };
 
   # An eval cycle is legal and laziness carries it; a deploy cycle is not,
