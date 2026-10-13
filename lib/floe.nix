@@ -155,6 +155,12 @@ rec {
 
       # The inner link's own `defaults` and `policies`, for the link `units`
       # builds. Meaningless without `units`.
+      #
+      # `defaults` may be a function of the same `{ inputs, requires, collects,
+      # floe }` that `units` is, because which provider a hole means can depend
+      # on what this floe was handed — a container whose units arrive as an
+      # input cannot name them when its definition is written. A plain attrset
+      # is the common case and stays one.
       defaults ? { },
       policies ? [ ],
 
@@ -351,9 +357,12 @@ rec {
                     inherit
                       units
                       exports
-                      defaults
                       policies
                       ;
+
+                    # Normalised to a function here, so `lib/link.nix` calls
+                    # one shape and an author writes whichever fits.
+                    defaults = if lib.isFunction defaults then defaults else _: defaults;
                   };
 
               # instantiate :: attrset -> instance

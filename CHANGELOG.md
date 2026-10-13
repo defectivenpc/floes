@@ -15,6 +15,27 @@ release; the ADRs keep their reasoning.
 
 ### Added
 
+- **A `singleton` provider needs no `defaults` entry when it is the only
+  one.** An optional hole resolves only when something names its provider,
+  and that rule is there so adding a floe cannot rewrite another floe's
+  output behind your back. A `singleton` is a floe the linker already
+  refuses a second of, so there is no second to add and the answer is forced
+  by construction — the ceremony bought nothing. A distribution with six
+  containers each holding one CA had each write `defaults.LAB_CA = "ca"`
+  beside the line that placed it.
+
+  Exactly one provider, and not "the only singleton among several": a second
+  provider makes it a real choice again, and naming it stays the author's.
+
+- **An inclusion's `defaults` may be a function of
+  `{ inputs, requires, collects, floe }`**, the same argument its `units`
+  takes. A container whose units arrive as an _input_ cannot name one when
+  its definition is written, so which provider an inner hole means is a
+  decision it can only make per instantiation — and without this it had to
+  rebuild its whole definition on each one, which meant the thing a reader
+  inspects was not the thing that got linked. A plain attrset is the common
+  case and stays one; `mkFloe` normalises.
+
 - **`mkFloe`'s `units` and `exports`: a floe may include a link of other
   units.** Backpack's `include`, and MixML's closure property, which is that
   linking units yields a unit. So a cluster that includes chart floes and a

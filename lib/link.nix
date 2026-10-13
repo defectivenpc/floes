@@ -160,9 +160,30 @@ rec {
           ]
       ) instNames;
 
+      # A singleton's provider needs no naming.
+      #
+      # An optional hole is unwired unless something says which provider it
+      # means, and that rule is right: adding a floe must not rewrite another
+      # floe's output behind your back. But a `singleton` is a floe this link
+      # already refuses a second of — `refusals.nix` does — so when it is the
+      # only provider the answer is forced by construction, and asking for it
+      # is ceremony. A distribution with six labs each holding one CA would
+      # have each write `defaults.LAB_CA = "ca"` beside the line that places
+      # it.
+      #
+      # Exactly one provider, and not "the only singleton among several": a
+      # second provider makes it a real choice, and naming it is the author's.
+      forcedProvider =
+        sigName:
+        let
+          ps = providersOf sigName;
+          only = lib.head ps;
+        in
+        if lib.length ps == 1 && (getInstance only.instName).def.singleton then only.instName else null;
+
       wantedBy =
         u: hole: sig:
-        (getInstance u).bindings.${hole} or (defaults.${sig.name} or null);
+        (getInstance u).bindings.${hole} or (defaults.${sig.name} or (forcedProvider sig.name));
 
       # What a hole could resolve to, and whether a deployer said which. Shared
       # by both singular arities, which differ only in what they do with it:
@@ -461,20 +482,26 @@ rec {
             # in the preflight because `units` is a function of this
             # inclusion's resolved holes, so there is nothing to read until the
             # fixpoint has resolved them.
+            # What an inclusion's `units` and its `defaults` are both functions
+            # of: what this floe was handed, and what its own holes resolved
+            # to. One expression, because the two have to be describing the
+            # same units — a default naming one that `units` did not produce
+            # leaves the hole unfilled and says nothing about why.
+            inclusionArgs = {
+              inputs = inst.inputsChecked;
+              requires = resolved;
+              collects = collected;
+              floe = {
+                name = u;
+                mkDeferred = floeLib.mkDeferredFor u;
+              };
+            };
+
             innerUnits =
               if inst.def.inclusion == null then
                 { }
               else
-                inst.def.inclusion.units {
-                  inputs = inst.inputsChecked;
-                  requires = resolved;
-                  collects = collected;
-                  floe = {
-                    name = u;
-                    mkDeferred = floeLib.mkDeferredFor u;
-                  };
-                }
-                // lib.mapAttrs (_: i: outerUnit i.sig i.value) injectedMeta;
+                inst.def.inclusion.units inclusionArgs // lib.mapAttrs (_: i: outerUnit i.sig i.value) injectedMeta;
 
             # The link an inclusion is, or null. Every outer hole it declared
             # becomes a unit inside providing what the parent resolved it to,
@@ -507,7 +534,7 @@ rec {
                   # about the units inside.
                   defaults =
                     lib.mapAttrs' (unitName: i: lib.nameValuePair i.sig.name unitName) injectedMeta
-                    // inst.def.inclusion.defaults;
+                    // inst.def.inclusion.defaults inclusionArgs;
                 };
 
             # What an inclusion offers outward: one of its units' provides,

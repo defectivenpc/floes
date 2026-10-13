@@ -38,7 +38,7 @@ mkFloe { name, summary, inputs ? {}, requires ? {}, optional ? {},
 | `body`      | no       | function               | the body, as a plain function; no `evalModules`      |
 | `units`     | no       | function               | a link of other units this floe includes             |
 | `exports`   | no       | attrset of refs        | which inner provide each re-exported `provides` is   |
-| `defaults`  | no       | attrset                | the inner link's `defaults`; needs `units`           |
+| `defaults`  | no       | attrset or function    | the inner link's `defaults`; needs `units`           |
 | `policies`  | no       | list of functions      | the inner link's `policies`; needs `units`           |
 | `singleton` | no       | bool                   | whether two instances in one link is an error        |
 
@@ -145,6 +145,28 @@ has an opinion about resolves, and an ambiguity no one resolved is still an
 error. `link` ignores a default naming a unit that provides nothing here
 rather than refusing it, because it may be a default for a signature this
 link does not use.
+
+**A `singleton` needs no entry when it is the only provider.** The rule
+above exists so that adding a floe cannot rewrite another floe's output
+behind your back; a singleton is one the linker already refuses a second of,
+so there is no second to add and the answer is forced by construction.
+"Only" is load bearing: a second provider makes it a real choice again even
+when one of the two is a singleton, and then somebody has to say which.
+
+An inclusion carries its own `defaults` for the units inside, and that one
+may be a function of `{ inputs, requires, collects, floe }` — the same
+argument its `units` takes:
+
+```nix
+units = { inputs, ... }: inputs.units;
+defaults = { inputs, ... }: { CLUSTER_PROVISIONING = inputs.provisionedBy; };
+```
+
+Because a container whose units arrive as an _input_ cannot name one when
+its definition is written. A plain attrset is the common case and stays one;
+the function form is what lets such a container be defined once rather than
+rebuilt per instantiation, so the thing a reader inspects is the thing that
+gets linked.
 
 ### What the body sees
 

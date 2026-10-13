@@ -249,6 +249,7 @@ let
       withProvider,
       binding ? null,
       default ? null,
+      singleton ? false,
     }:
     let
       consumer = floe.mkFloe {
@@ -270,6 +271,7 @@ let
         name = "issuer";
         summary = "Fixture floe for a test suite.";
         provides.it = SELF;
+        inherit singleton;
         body = { ... }: {
           provides.it = {
             v = "internal";
@@ -1167,6 +1169,131 @@ in
       }).provides.consumer.echo.v;
     expected = "internal";
   };
+
+  # A singleton is a floe this link refuses a second of, so when it is the one
+  # provider the answer is forced and there is nothing for a deployer to say.
+  # The two tests above are the same link with `singleton = false`: an unnamed
+  # provider refused, and a `defaults` entry accepting it.
+  testTheOneProviderOfASingletonNeedsNoNaming = {
+    expr =
+      (optionalLink {
+        withProvider = true;
+        singleton = true;
+      }).provides.consumer.echo.v;
+    expected = "internal";
+  };
+
+  # And it is forced rather than preferred. Two providers is a real choice even
+  # when one of them is a singleton, so the hole goes back to needing a name.
+  testASecondProviderMakesASingletonAChoiceAgain = {
+    expr = fails (
+      floe.link {
+        units = {
+          consumer =
+            (floe.mkFloe {
+              name = "consumer";
+              summary = "Fixture floe for a test suite.";
+              optional.issuance = SELF;
+              provides.echo = ECHO;
+              body = { requires, ... }: {
+                provides.echo.v = if requires.issuance == null then "none" else requires.issuance.v;
+              };
+            }).instantiate
+              { };
+
+          only =
+            (floe.mkFloe {
+              name = "only";
+              summary = "Fixture floe for a test suite.";
+              provides.it = SELF;
+              singleton = true;
+              body = { ... }: { provides.it.v = "singleton"; };
+            }).instantiate
+              { };
+
+          other =
+            (floe.mkFloe {
+              name = "other";
+              summary = "Fixture floe for a test suite.";
+              provides.it = SELF;
+              body = { ... }: { provides.it.v = "other"; };
+            }).instantiate
+              { };
+        };
+      }
+    );
+    expected = true;
+  };
+
+  # An inclusion's `defaults` may be a function of what it was handed, the way
+  # its `units` is.
+  #
+  # The case it exists for: a container whose units arrive as an *input* cannot
+  # name one when its definition is written, so saying which provider an inner
+  # hole means is a decision it can only make per instantiation. Without this
+  # the definition had to be rebuilt on every instantiation, which meant the
+  # thing a reader inspects was not the thing that got linked.
+  #
+  # Two providers inside, so nothing resolves by itself and the answer is the
+  # input's alone.
+  testAnInclusionsDefaultsMayBeAFunctionOfItsInputs =
+    let
+      provider =
+        v:
+        floe.mkFloe {
+          name = "provider-${v}";
+          summary = "Fixture floe for a test suite.";
+          provides.it = SELF;
+          body = { ... }: { provides.it.v = v; };
+        };
+
+      consumer = floe.mkFloe {
+        name = "consumer";
+        summary = "Fixture floe for a test suite.";
+        optional.issuance = SELF;
+        provides.echo = ECHO;
+        body =
+          { requires, ... }:
+          {
+            provides.echo.v = if requires.issuance == null then "none" else requires.issuance.v;
+          };
+      };
+
+      # Built once, outside both instantiations, which is the whole point.
+      container = floe.mkFloe {
+        name = "container";
+        summary = "Fixture: an inclusion whose inner default is an input.";
+
+        inputs.means = lib.mkOption {
+          type = lib.types.str;
+          default = "left";
+        };
+
+        provides.echo = ECHO;
+        exports.echo = "consumer/echo";
+
+        units = _: {
+          consumer = consumer.instantiate { };
+          left = (provider "from the left").instantiate { };
+          right = (provider "from the right").instantiate { };
+        };
+
+        defaults = { inputs, ... }: { SELF = inputs.means; };
+      };
+
+      answerOf =
+        means: (floe.link { units.env = container.instantiate { inherit means; }; }).provides.env.echo.v;
+    in
+    {
+      expr = {
+        defaulted = answerOf "left";
+        chosen = answerOf "right";
+      };
+      expected = {
+        defaulted = "from the left";
+        chosen = "from the right";
+      };
+    };
 
   # An unwired hole read nothing, so it is not an edge, which is what keeps it
   # out of the deploy ordering as well.
