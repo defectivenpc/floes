@@ -141,6 +141,19 @@ rec {
     name = "record { ${lib.concatStringsSep ", " (lib.attrNames fields)} }";
   };
 
+  # named :: string -> Type -> Type
+  #
+  #   bundle = T.named "bundle" (T.record { … });
+  #
+  # A separate combinator rather than an argument to `record`, because
+  # `record`'s argument is the field table and records have fields called
+  # `name` — one key cannot mean both. It also names an `attrsOf` or a
+  # `listOf`, which `record` could not.
+  #
+  # `checkValue` prints `ty.name`, so this is what turns
+  # `expected record { chart, releaseName, … }` into `expected helmChart`.
+  named = name: ty: ty // { inherit name; };
+
   taggedUnion = variants: {
     tag = "taggedUnion";
     inherit variants;
@@ -258,10 +271,29 @@ rec {
       # Same leaf tag, and a leaf carries nothing further to disagree about.
       [ ];
 
+  # conformValue :: [string] -> type -> value -> value
+  #
+  # `checkValue`, and a record field the type does not declare is an error
+  # rather than dropped.
+  #
+  # The two differ because dropping is load-bearing in one place and wrong in
+  # the other. Where a value crosses a narrow signature the drop *is* the seal
+  # — `link.nix`'s `sealSig` relies on it, and a signature carrying less than
+  # the value offered is how a boundary keeps a field local. Where a floe
+  # authors an output kind there is no narrowing: a field the kind does not
+  # have is a field the author believed in, and silence loses their intent
+  # with no message.
+  #
+  # Misspelling an existing field was always caught, because the field it
+  # should have been goes missing. This catches the other mistake.
+  conformValue = checkValue' true;
+
   # checkValue :: [string] -> type -> value -> value
   # Throws with a dotted path on mismatch; returns the (restricted) value.
-  checkValue =
-    path: ty: v:
+  checkValue = checkValue' false;
+
+  checkValue' =
+    strict: path: ty: v:
     let
       where = if path == [ ] then "<value>" else lib.concatStringsSep "." path;
       fail = msg: throw "floe type error at ${where}: ${msg}";
@@ -277,9 +309,9 @@ rec {
     else if ty.tag == "any" then
       v
     else if ty.tag == "derivedFrom" then
-      checkValue path ty.inner v
+      checkValue' strict path ty.inner v
     else if ty.tag == "deferred" then
-      (if isDeferredToken v then v else checkValue path ty.inner v)
+      (if isDeferredToken v then v else checkValue' strict path ty.inner v)
     else if isDeferredToken v then
       fail (
         "got a deferred value where concrete ${ty.name} is required. It comes from "
@@ -288,20 +320,20 @@ rec {
         + "cannot be used at evaluation time."
       )
     else if ty.tag == "nullOr" then
-      (if v == null then v else checkValue path ty.inner v)
+      (if v == null then v else checkValue' strict path ty.inner v)
     else if ty.tag == "listOf" then
       (
         if !isList v then
           fail "expected ${ty.name}, got ${typeOf v}"
         else
-          lib.imap0 (i: x: checkValue (path ++ [ (toString i) ]) ty.inner x) v
+          lib.imap0 (i: x: checkValue' strict (path ++ [ (toString i) ]) ty.inner x) v
       )
     else if ty.tag == "attrsOf" then
       (
         if !isAttrs v then
           fail "expected ${ty.name}, got ${typeOf v}"
         else
-          lib.mapAttrs (n: x: checkValue (path ++ [ n ]) ty.inner x) v
+          lib.mapAttrs (n: x: checkValue' strict (path ++ [ n ]) ty.inner x) v
       )
     else if ty.tag == "moduleType" then
       (
@@ -326,11 +358,17 @@ rec {
         else
           let
             missing = lib.filter (f: !(hasAttr f v)) (lib.attrNames ty.fields);
+            unknown = lib.subtractLists (lib.attrNames ty.fields) (lib.attrNames v);
           in
           if missing != [ ] then
             fail "missing field(s): ${lib.concatStringsSep ", " missing}"
+          else if strict && unknown != [ ] then
+            fail (
+              "unknown field(s): ${lib.concatStringsSep ", " unknown}. "
+              + "${ty.name} declares: ${lib.concatStringsSep ", " (lib.attrNames ty.fields)}"
+            )
           else
-            lib.mapAttrs (f: fty: checkValue (path ++ [ f ]) fty v.${f}) ty.fields
+            lib.mapAttrs (f: fty: checkValue' strict (path ++ [ f ]) fty v.${f}) ty.fields
       )
     else if ty.tag == "taggedUnion" then
       (
@@ -356,7 +394,7 @@ rec {
             k = lib.head present;
           in
           {
-            ${k} = checkValue (path ++ [ k ]) ty.variants.${k} v.${k};
+            ${k} = checkValue' strict (path ++ [ k ]) ty.variants.${k} v.${k};
           }
       )
     else if ty ? check then

@@ -683,8 +683,12 @@ rec {
               in
               sealSig [ u "provides" provideName ] sig v
             ) inst.def.provides;
+            # `conformValue`, not `checkValue`: an output kind is authored to
+            # match the kind, so a field the kind does not declare is a
+            # mistake rather than something to seal away. `provides` above is
+            # the opposite case and keeps `sealSig`.
             outs = lib.mapAttrs (
-              name: sig: types.checkValue [ u "out" name ] sig.shape (evaluated.out.${name} or { })
+              name: sig: types.conformValue [ u "out" name ] sig.shape (evaluated.out.${name} or { })
             ) inst.def.out;
           }
         )

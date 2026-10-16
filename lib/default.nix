@@ -19,7 +19,7 @@ let
 in
 {
   T = types;
-  inherit (types) checkValue isDeferredToken;
+  inherit (types) checkValue conformValue isDeferredToken;
   inherit (interfaces)
     mkSig
     project
