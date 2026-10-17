@@ -7,6 +7,7 @@ let
   interfaces = import ./interfaces.nix { inherit lib types; };
   floe = import ./floe.nix { inherit lib types; };
   refusals = import ./refusals.nix { inherit lib types; };
+  distribution = import ./distribution.nix { inherit lib types; };
   link = import ./link.nix {
     inherit
       lib
@@ -20,6 +21,7 @@ in
 {
   T = types;
   inherit (types) checkValue conformValue isDeferredToken;
+  inherit (distribution) mkDistribution;
   inherit (interfaces)
     mkSig
     project
