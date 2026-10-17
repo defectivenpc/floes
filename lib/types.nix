@@ -141,6 +141,22 @@ rec {
     name = "record { ${lib.concatStringsSep ", " (lib.attrNames fields)} }";
   };
 
+  # optional :: Type -> Type
+  #
+  # A record field that may be absent. Present, it is checked as its type;
+  # absent, it is absent — which is not the same as null, and is why
+  # `nullOr` cannot say this.
+  #
+  #   T.record {
+  #     repo = T.str;
+  #     branch = T.optional T.str;
+  #   }
+  #
+  # Only meaningful inside `record`. A producer that always writes the field
+  # should not mark it: the point of a required field is that forgetting it is
+  # an error, and `optional` gives that up.
+  optional = ty: ty // { optionalField = true; };
+
   # named :: string -> Type -> Type
   #
   #   bundle = T.named "bundle" (T.record { … });
@@ -357,8 +373,14 @@ rec {
           fail "expected ${ty.name}, got ${typeOf v}"
         else
           let
-            missing = lib.filter (f: !(hasAttr f v)) (lib.attrNames ty.fields);
+            isOptional = f: ty.fields.${f}.optionalField or false;
+
+            missing = lib.filter (f: !(hasAttr f v) && !isOptional f) (lib.attrNames ty.fields);
             unknown = lib.subtractLists (lib.attrNames ty.fields) (lib.attrNames v);
+
+            # Only the fields the value has. Mapping over the declaration
+            # would force `v.${f}` for an absent optional one.
+            present = lib.filterAttrs (f: _: hasAttr f v) ty.fields;
           in
           if missing != [ ] then
             fail "missing field(s): ${lib.concatStringsSep ", " missing}"
@@ -368,7 +390,7 @@ rec {
               + "${ty.name} declares: ${lib.concatStringsSep ", " (lib.attrNames ty.fields)}"
             )
           else
-            lib.mapAttrs (f: fty: checkValue' strict (path ++ [ f ]) fty v.${f}) ty.fields
+            lib.mapAttrs (f: fty: checkValue' strict (path ++ [ f ]) fty v.${f}) present
       )
     else if ty.tag == "taggedUnion" then
       (
