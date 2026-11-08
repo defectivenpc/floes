@@ -21,6 +21,8 @@ out) and a body of ordinary NixOS modules evaluated in its own isolated
 **Instantiation**: Applying a floe to the inputs a deployer chose, producing
 a value that can be linked. You instantiate a floe rather than enabling it:
 there is no `enable`, and a floe absent from a link is not there.
+_Avoid_: injection, which suggests dependency injection; holes resolve by
+signature name, not by a container.
 
 **Unit**: An instantiated floe under the name a link gives it. The name a
 link keys on, and the name errors use. _Note_: Backpack calls the
