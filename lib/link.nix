@@ -16,6 +16,17 @@ let
   candidatesFor =
     catalogue: sigName:
     lib.attrNames (lib.filterAttrs (_: sigNames: lib.elem sigName sigNames) catalogue);
+
+  # `lib.unique`, order kept, deduped by the evaluator's key set: `lib.unique`
+  # is quadratic, and `graph.nodes` runs it once per nesting level.
+  uniqueStrings =
+    xs:
+    map (x: x.key) (
+      builtins.genericClosure {
+        startSet = map (key: { inherit key; }) xs;
+        operator = _: [ ];
+      }
+    );
 in
 # `rec`, because an inclusion is a floe whose body is a link, so `link` runs
 # itself for the units inside one. ADR 0006.
@@ -748,7 +759,7 @@ rec {
           # *through* the inclusion from outside already names a unit the parent
           # knows, and qualifying that would invent a node.
           let
-            innerNodes = fixed.${u}.inner.graph.nodes;
+            innerNodes = lib.genAttrs fixed.${u}.inner.graph.nodes (_: true);
           in
           map (
             site:
@@ -757,7 +768,7 @@ rec {
               unit = qualify u site.unit;
               token = site.token // {
                 source =
-                  if lib.elem site.token.source innerNodes then qualify u site.token.source else site.token.source;
+                  if innerNodes ? ${site.token.source} then qualify u site.token.source else site.token.source;
               };
             }
           ) fixed.${u}.inner.deferredSites
@@ -839,25 +850,62 @@ rec {
       #
       # Spanning the nesting, like `phases` and unlike `wiring`: a cycle inside
       # an inclusion is a cache-unit fact the parent needs too.
-      reachable =
+      #
+      # Closures by `genericClosure`, which dedupes in the evaluator rather than
+      # with `lib.unique`, and one per component rather than per unit. The
+      # round-based closure this replaced was about O(n⁴), and owned namespaces
+      # make one component of nearly every unit, its worst case:
+      # `bench/scale` measured 25 s for `cycles` alone at eighty units.
+      reachFrom =
         let
           edges = lib.filter (e: e.kind == "eval") (evalEdges ++ innerEdges);
-          direct = lib.genAttrs nodeNames (u: lib.unique (map (e: e.to) (lib.filter (e: e.from == u) edges)));
-          step =
-            reach: lib.mapAttrs (_: rs: lib.unique (rs ++ lib.concatMap (v: reach.${v} or [ ]) rs)) reach;
+          adjacency =
+            from: to:
+            let
+              by = lib.groupBy (e: e.${from}) edges;
+            in
+            lib.genAttrs nodeNames (u: map (e: e.${to}) (by.${u} or [ ]));
+          closure =
+            adj: u:
+            lib.listToAttrs (
+              map (x: lib.nameValuePair x.key true) (
+                builtins.genericClosure {
+                  startSet = map (key: { inherit key; }) adj.${u};
+                  operator = x: map (key: { inherit key; }) (adj.${x.key} or [ ]);
+                }
+              )
+            );
         in
-        # A path grows by at most one unit per round, so as many rounds as
-        # there are units is the closure. Cheaper than detecting the fixed
-        # point at the sizes a link has, and it terminates by construction.
-        lib.foldl' (acc: _: step acc) direct nodeNames;
+        {
+          forward = closure (adjacency "from" "to");
+          backward = closure (adjacency "to" "from");
+        };
 
       # A unit is in a cycle exactly when it can reach itself, and its cycle is
-      # everything it reaches that reaches it back.
-      cycles = lib.unique (
-        map (
-          u: lib.sort (a: b: a < b) (lib.filter (v: lib.elem u (reachable.${v} or [ ])) reachable.${u})
-        ) (lib.filter (u: lib.elem u (reachable.${u} or [ ])) nodeNames)
-      );
+      # everything it reaches that reaches it back. Ordered by first member in
+      # `nodeNames`, and each found once: its other members are skipped.
+      cycles =
+        (lib.foldl'
+          (
+            acc: u:
+            let
+              fwd = reachFrom.forward u;
+              scc = lib.sort (a: b: a < b) (lib.filter (v: fwd ? ${v}) (lib.attrNames (reachFrom.backward u)));
+            in
+            if acc.seen ? ${u} || !(fwd ? ${u}) then
+              acc
+            else
+              {
+                seen = acc.seen // lib.genAttrs scc (_: true);
+                found = acc.found ++ [ scc ];
+              }
+          )
+          {
+            seen = { };
+            found = [ ];
+          }
+          nodeNames
+        ).found;
 
       deployEdges = lib.unique (
         lib.concatMap (
@@ -989,8 +1037,8 @@ rec {
         u:
         if isInclusion u then
           let
-            innerNodes = fixed.${u}.inner.graph.nodes;
-            rename = n: if lib.elem n innerNodes then qualify u n else n;
+            innerNodes = lib.genAttrs fixed.${u}.inner.graph.nodes (_: true);
+            rename = n: if innerNodes ? ${n} then qualify u n else n;
           in
           map (
             e:
@@ -1105,8 +1153,8 @@ rec {
       innerWiringOf =
         u:
         let
-          innerNodes = fixed.${u}.inner.graph.nodes;
-          held = p: p != null && lib.elem p.instName innerNodes;
+          innerNodes = lib.genAttrs fixed.${u}.inner.graph.nodes (_: true);
+          held = p: p != null && innerNodes ? ${p.instName};
           lift =
             p:
             p
@@ -1117,7 +1165,7 @@ rec {
           byUnit =
             f: byName:
             lib.mapAttrs' (n: holes: lib.nameValuePair (qualify u n) (f holes)) (
-              lib.filterAttrs (n: _: lib.elem n innerNodes) byName
+              lib.filterAttrs (n: _: innerNodes ? ${n}) byName
             );
           inner = fixed.${u}.inner.wiring;
         in
@@ -1159,7 +1207,7 @@ rec {
         inherit floeNames;
 
         graph = {
-          nodes = lib.unique nodeNames;
+          nodes = uniqueStrings nodeNames;
           edges = evalEdges ++ innerEdges ++ deployEdges;
         };
 
