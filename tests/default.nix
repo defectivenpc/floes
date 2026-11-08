@@ -486,6 +486,7 @@ let
   edges = lib.sort (a: b: a < b) (map edge deployment.graph.edges);
 in
 (import ./examples.nix { inherit lib floe; })
+++ (import ./scale.nix { inherit lib floe; })
 ++ lib.runTests {
 
   # The two halves of the type boundary, each of which fails deep inside
