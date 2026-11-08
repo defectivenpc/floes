@@ -135,16 +135,24 @@
       # complaint wherever that output lands. The deployer gets one of the thing
       # and believes they have two, with no error anywhere downstream, which is
       # why this one has to be caught here.
-      singletonBreaches =
+      singletonGroups =
         let
           declared = lib.filter (u: (getInstance u).def.singleton) instNames;
-          byFloe = lib.groupBy (u: (getInstance u).def.name) declared;
         in
-        lib.mapAttrsToList (
-          floeName: us:
-          "floe '${floeName}' is a singleton, instantiated ${toString (lib.length us)} times: "
-          + lib.concatMapStringsSep ", " (u: "'${u}'") us
-        ) (lib.filterAttrs (_: us: lib.length us > 1) byFloe);
+        lib.filterAttrs (_: us: lib.length us > 1) (lib.groupBy (u: (getInstance u).def.name) declared);
+
+      singletonBreaches = lib.mapAttrsToList (
+        floeName: us:
+        "floe '${floeName}' is a singleton, instantiated ${toString (lib.length us)} times: "
+        + lib.concatMapStringsSep ", " (u: "'${u}'") us
+      ) singletonGroups;
+
+      # The first line names who, because at a few thousand units the first line
+      # is what a reader gets before scrolling.
+      quoteSome =
+        names:
+        lib.concatMapStringsSep ", " (n: "'${n}'") (lib.take 5 names)
+        + lib.optionalString (lib.length names > 5) " and ${toString (lib.length names - 5)} more";
 
       # Which provider a hole means: the unit's own `.bind` first, then the
       # link's `defaults` for that signature, then nothing.
@@ -200,7 +208,7 @@
         # unit per contributor, and they are all the same mistake.
         lib.unique (map (s: synthetic.${s}) unread);
 
-      incompatibilities = lib.concatMap (
+      incompatibleBy = lib.genAttrs instNames (
         u:
         let
           def = (getInstance u).def;
@@ -218,7 +226,9 @@
             hole: ps: lib.concatMap (incompatible u hole "collects" def.collects.${hole}) ps
           ) wiringAll.${u}
         )
-      ) instNames;
+      );
+      incompatibilities = lib.concatMap (u: incompatibleBy.${u}) instNames;
+      incompatibleUnits = lib.filter (u: incompatibleBy.${u} != [ ]) instNames;
       refusals = [
         (lib.optional (nameCollisions != [ ]) (
           "floe link error: a hole or provide name means more than one signature.\n  - "
@@ -227,7 +237,7 @@
           + "without looking it up. Rename one to its signature's `canonicalName`."
         ))
         (lib.optional (singletonBreaches != [ ]) (
-          "floe link error: a singleton floe is instantiated more than once.\n  - "
+          "floe link error: singleton ${quoteSome (lib.attrNames singletonGroups)} is instantiated more than once.\n  - "
           + lib.concatStringsSep "\n  - " singletonBreaches
           + "\n\nIts body writes fixed paths instead of keying them by "
           + "`config.floe.name`, so every instance emits the same output. Identical "
@@ -283,7 +293,7 @@
           + "give the unit inside that was meant to read it the hole."
         ))
         (lib.optional (incompatibilities != [ ]) (
-          "floe link error: a provider cannot answer the signature a unit asked for.\n  - "
+          "floe link error: ${quoteSome incompatibleUnits} asked for a signature its provider cannot answer.\n  - "
           + lib.concatStringsSep "\n  - " incompatibilities
           + "\n\nResolution matches a signature by name, so two definitions of one name "
           + "link and then fail wherever the value is read, naming no floe. Widen the "

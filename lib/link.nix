@@ -246,7 +246,10 @@ rec {
             throw (
               "floe link error: no provider for signature '${sig.name}' "
               + "(required by '${u}' as hole '${hole}').\n"
-              + "  In this link: ${lib.concatStringsSep ", " instNames}\n"
+              # Capped: at a few thousand units the whole list is the message.
+              + "  In this link: ${lib.concatStringsSep ", " (lib.take 10 instNames)}"
+              + lib.optionalString (lib.length instNames > 10) " and ${toString (lib.length instNames - 10)} more"
+              + "\n"
               + (
                 if candidates == [ ] then
                   "  Nothing available provides it."
