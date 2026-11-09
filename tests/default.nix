@@ -478,6 +478,69 @@ let
     all = [ fakeDrv ];
   };
 
+  diamondChain =
+    let
+      d = j: "d${toString (lib.mod j 3)}";
+      sig =
+        j:
+        floe.mkSig {
+          name = "D${toString (lib.mod j 3)}";
+          canonicalName = d j;
+          description = "Fixture: one link of a diamond chain.";
+          fields.token = T.deferred T.str;
+        };
+      mint =
+        j:
+        floe.mkFloe {
+          name = "mint-${d j}";
+          summary = "Fixture floe for a test suite.";
+          provides.${d j} = sig j;
+          body =
+            { floe, ... }:
+            {
+              provides.${d j}.token = floe.mkDeferred REF { path = "/run/mint"; };
+            };
+        };
+      step =
+        j:
+        floe.mkFloe {
+          name = "step-${d j}";
+          summary = "Fixture floe for a test suite.";
+          requires.${d (j + 2)} = sig (j + 2);
+          requires.${d (j + 1)} = sig (j + 1);
+          provides.${d j} = sig j;
+          out.opaque = OPAQUE;
+          body =
+            { requires, floe, ... }:
+            {
+              provides.${d j}.token = floe.mkDeferred REF { path = "/run/step"; };
+              out.opaque = {
+                a = requires.${d (j + 2)}.token;
+                b = requires.${d (j + 1)}.token;
+              };
+            };
+        };
+      steps = lib.genList step 3;
+      s = k: "s${toString k}";
+    in
+    floe.link {
+      units = {
+        s0 = (mint 0).instantiate { };
+        s1 = (mint 1).instantiate { };
+      }
+      // lib.listToAttrs (
+        map (
+          k:
+          lib.nameValuePair (s k) (
+            ((lib.elemAt steps (lib.mod k 3)).instantiate { }).bind {
+              ${d (k - 1)} = s (k - 1);
+              ${d (k - 2)} = s (k - 2);
+            }
+          )
+        ) (lib.range 2 40)
+      );
+    };
+
   deployment = fixture.deployment;
 
   # Edges are compared as sorted strings: the linker's list order follows
@@ -553,6 +616,17 @@ in
       grafana = 1;
       ingress = 0;
       myapp = 0;
+    };
+  };
+
+  testPhasesAreLinearInADiamondChain = {
+    expr = {
+      inherit (diamondChain.phases) s2 s3 s40;
+    };
+    expected = {
+      s2 = 1;
+      s3 = 2;
+      s40 = 39;
     };
   };
 

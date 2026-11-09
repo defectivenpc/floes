@@ -907,31 +907,71 @@ rec {
           nodeNames
         ).found;
 
-      deployEdges = lib.unique (
-        lib.concatMap (
-          site:
-          lib.optional (site.token.source != site.unit) {
-            from = site.unit;
-            to = site.token.source;
-            # The retrieval, because that is the useful label: it says which
-            # resolver this edge needs a backend to have.
-            via = site.token.retrieval;
-            kind = "deploy";
-          }
-        ) deferredSites
+      # Deduped by a string key, because `lib.unique` is quadratic and there is
+      # one site per token emitted.
+      deployEdges = lib.attrValues (
+        lib.listToAttrs (
+          map (e: lib.nameValuePair "${e.from}\n${e.to}\n${e.via}" e) (
+            lib.concatMap (
+              site:
+              lib.optional (site.token.source != site.unit) {
+                from = site.unit;
+                to = site.token.source;
+                # The retrieval, because that is the useful label: it says which
+                # resolver this edge needs a backend to have.
+                via = site.token.retrieval;
+                kind = "deploy";
+              }
+            ) deferredSites
+          )
+        )
       );
 
-      deployDepsOf = u: lib.unique (map (e: e.to) (lib.filter (e: e.from == u) deployEdges));
+      deployDeps = lib.mapAttrs (_: es: uniqueStrings (map (e: e.to) es)) (
+        lib.groupBy (e: e.from) deployEdges
+      );
+      deployDepsOf = u: deployDeps.${u} or [ ];
 
-      phaseOf =
-        seen: u:
-        if lib.elem u seen then
-          throw ("floe link error: deferred-value cycle: " + lib.concatStringsSep " -> " (seen ++ [ u ]))
-        else
-          let
-            deps = deployDepsOf u;
-          in
-          if deps == [ ] then 0 else 1 + lib.foldl' lib.max 0 (map (phaseOf (seen ++ [ u ])) deps);
+      # In rounds: each places every unit whose dependencies are all placed, so
+      # a unit's phase is computed once. The walk this replaced went path by
+      # path, which a chain of diamonds makes exponential. A round that places
+      # nothing has only cycles left, and following any unplaced dependency
+      # from a stuck unit must reach one.
+      # ponytail: O(phases x units); a phase is a deploy wave, so few. Kahn's
+      # algorithm with in-degree counts if a link ever has thousands of phases.
+      phaseTable =
+        let
+          go =
+            placed: pending:
+            let
+              ready = lib.filter (u: lib.all (d: placed ? ${d}) (deployDepsOf u)) pending;
+              readySet = lib.genAttrs ready (_: true);
+              cycleFrom =
+                path: u:
+                if lib.elem u path then
+                  throw ("floe link error: deferred-value cycle: " + lib.concatStringsSep " -> " (path ++ [ u ]))
+                else
+                  cycleFrom (path ++ [ u ]) (lib.findFirst (d: !(placed ? ${d})) null (deployDepsOf u));
+            in
+            if pending == [ ] then
+              placed
+            else if ready == [ ] then
+              cycleFrom [ ] (lib.head pending)
+            else
+              go (
+                placed
+                // lib.genAttrs ready (u: 1 + lib.foldl' lib.max (-1) (map (d: placed.${d}) (deployDepsOf u)))
+              ) (lib.filter (u: !(readySet ? ${u})) pending);
+        in
+        go { } (
+          uniqueStrings (
+            leafNames
+            ++ lib.concatMap (e: [
+              e.from
+              e.to
+            ]) deployEdges
+          )
+        );
 
       # ---- Output collection -----------------------------------------------
       #
@@ -1009,7 +1049,7 @@ rec {
       # images its manifests pull" — needs the name to find the declaration it
       # is checking against. A unit name is the deployer's and says nothing
       # about which floe it is.
-      floeNames = lib.foldl' lib.mergeAttrs { } (
+      floeNames = lib.mergeAttrsList (
         map (
           u:
           if isSynthetic u then
@@ -1177,8 +1217,8 @@ rec {
 
       withInnerWiring =
         arity: top:
-        lib.foldl' lib.mergeAttrs top (
-          map (u: (innerWiringOf u).${arity}) (lib.filter isInclusion instNames)
+        lib.mergeAttrsList (
+          [ top ] ++ map (u: (innerWiringOf u).${arity}) (lib.filter isInclusion instNames)
         );
 
       # ---- Result and policies ---------------------------------------------
@@ -1214,7 +1254,7 @@ rec {
         # Keyed by what emits, which after an inclusion is its units rather than
         # it. Deploy edges are derived from tokens in output, and output comes
         # from leaves, so this needs no special case beyond the flattening.
-        phases = lib.genAttrs leafNames (phaseOf [ ]);
+        phases = lib.genAttrs leafNames (u: phaseTable.${u});
 
         # Every group of units whose holes resolve to each other, at any depth.
         # A unit absent from all of them is its own cache unit. ADR 0008.

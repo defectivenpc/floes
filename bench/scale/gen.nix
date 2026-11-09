@@ -57,7 +57,9 @@ let
   # not depend on how many floes were sampled before it.
   rand =
     i: k:
-    lib.fromHexString (builtins.substring 0 7 (builtins.hashString "sha256" "${seed}:${toString i}:${k}"))
+    lib.fromHexString (
+      builtins.substring 0 7 (builtins.hashString "sha256" "${seed}:${toString i}:${k}")
+    )
     / 268435456.0;
 
   lerp =
@@ -214,7 +216,9 @@ let
     if layer i == 0 || i < 1 then
       [ ]
     else
-      lib.unique (lib.genList (t: i - 1 - stride * builtins.floor (span * rand i "p${toString t}")) count);
+      lib.unique (
+        lib.genList (t: i - 1 - stride * builtins.floor (span * rand i "p${toString t}")) count
+      );
 
   # 1-3 domains read. `ports` is read only from one not contributed to, which
   # is what `T.derivedFrom` permits; the "derived" fault breaks exactly that.
@@ -243,25 +247,21 @@ let
   # service's inputs, its peers' provides and the domains it reads, what it
   # claims into domain `d`.
 
-  claimOf =
-    i: d: inputs: peers: doms:
-    {
-      name = "s${toString i}";
-      port = portOf i;
-      enable = true;
-      tags = [
-        d
-        "bench"
-      ];
-      settings = lib.mapAttrs (_: builtins.toJSON) inputs // {
-        peers = lib.concatMapStrings (p: "${p.host}:${toString p.port},") peers;
-        doms = lib.concatStrings (
-          lib.mapAttrsToList (
-            name: v: "${name}=${v.info}/${toString (lib.length (v.ports or [ ]))};"
-          ) doms
-        );
-      };
+  claimOf = i: d: inputs: peers: doms: {
+    name = "s${toString i}";
+    port = portOf i;
+    enable = true;
+    tags = [
+      d
+      "bench"
+    ];
+    settings = lib.mapAttrs (_: builtins.toJSON) inputs // {
+      peers = lib.concatMapStrings (p: "${p.host}:${toString p.port},") peers;
+      doms = lib.concatStrings (
+        lib.mapAttrsToList (name: v: "${name}=${v.info}/${toString (lib.length (v.ports or [ ]))};") doms
+      );
     };
+  };
 
   claimFields = {
     name = T.str;
@@ -360,7 +360,9 @@ let
               let
                 v = requires."dom_${d}";
               in
-              lib.nameValuePair d ({ inherit (v) info; } // lib.optionalAttrs (readsPorts i d) { inherit (v) ports; })
+              lib.nameValuePair d (
+                { inherit (v) info; } // lib.optionalAttrs (readsPorts i d) { inherit (v) ports; }
+              )
             ) (readsOf i)
           );
         in
@@ -417,8 +419,12 @@ let
         )
       ) (lib.filter (i: i != dropped) linked)
     )
-    // lib.listToAttrs (map (d: lib.nameValuePair "dom-${d}" ((mkDomain d).instantiate { })) domainNames)
-    // lib.optionalAttrs (fault == "singleton") { dom-services-2 = (mkDomain "services").instantiate { }; };
+    // lib.listToAttrs (
+      map (d: lib.nameValuePair "dom-${d}" ((mkDomain d).instantiate { })) domainNames
+    )
+    // lib.optionalAttrs (fault == "singleton") {
+      dom-services-2 = (mkDomain "services").instantiate { };
+    };
 
   # A second instance makes every `SVC_i` it provides ambiguous; the link's
   # `defaults` names the first, which is the ceremony multi-instance costs.
@@ -461,7 +467,9 @@ let
       }) (peersOf i);
       doms = lib.genAttrs (readsOf i) (
         d:
-        { inherit (config.dom.${d}) info; }
+        {
+          inherit (config.dom.${d}) info;
+        }
         // lib.optionalAttrs (readsPorts i d) { inherit (config.dom.${d}) ports; }
       );
       inputs = removeAttrs cfg [
@@ -551,29 +559,9 @@ let
       ++ lib.optional (fault != null) twinFaults.${fault};
   };
 
-  # The adapter, which is what Q1(b) costs on top of the link: every fragment
-  # handed to a NixOS core that owns each namespace's option type, the way
-  # systemd owns `systemd.services`. So the floe side type-checks a claim
-  # twice, sealed by `T` and merged by the core, and that is the real price
-  # of the architecture rather than something to equalise away.
-  adapted = lib.evalModules {
-    modules = [
-      {
-        options.out = lib.genAttrs domainNames (
-          _:
-          mkOption {
-            type = types.attrsOf claimModule;
-            default = { };
-          }
-        );
-      }
-    ]
-    ++ lib.mapAttrsToList (_: frag: { config.out = frag; }) floeLink.out."bench.config";
-  };
-
-  # The floe side's emitted output, merged the way an adapter would: each
-  # domain owns its key, so a shallow union is the whole merge.
-  floeOut = lib.foldl' (a: b: a // b) { } (lib.attrValues floeLink.out."bench.config");
+  # The world the floe side produces, to compare with `twinOut`: each domain
+  # owns its key, so a shallow union is the whole merge.
+  floeOut = lib.mergeAttrsList (lib.attrValues floeLink.out."bench.config");
 in
 {
   inherit
@@ -583,12 +571,14 @@ in
     target
     ;
   twinOut = twin.config.out;
-  floeAdapted = adapted.config.out;
 
   meta = {
     units = lib.length (lib.attrNames hostUnits);
     catalogueInputs = lib.foldl' (a: i: a + weightOf i) 0 (lib.range 0 (catalogue - 1));
-    signatures = catalogue + lib.length (lib.filter (i: rand i "x" < 0.5) (lib.range 0 (catalogue - 1))) + 2 * lib.length domains;
+    signatures =
+      catalogue
+      + lib.length (lib.filter (i: rand i "x" < 0.5) (lib.range 0 (catalogue - 1)))
+      + 2 * lib.length domains;
     fanIn = lib.genAttrs domainNames (
       d: lib.length (lib.filter (i: lib.elem d (contributes i)) linked)
     );

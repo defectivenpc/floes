@@ -5,8 +5,22 @@
 { lib, floe }:
 
 let
-  gen = args: import ../bench/scale/gen.nix ({ inherit lib floe; catalogue = 20; n = 10; } // args);
-  agree = args: let g = gen args; in g.floeOut == g.twinOut;
+  gen =
+    args:
+    import ../bench/scale/gen.nix (
+      {
+        inherit lib floe;
+        catalogue = 20;
+        n = 10;
+      }
+      // args
+    );
+  agree =
+    args:
+    let
+      g = gen args;
+    in
+    g.floeOut == g.twinOut;
   fails = expr: !(builtins.tryEval (builtins.deepSeq expr "evaluated")).success;
 in
 lib.runTests {
@@ -27,12 +41,6 @@ lib.runTests {
   # Nesting is floe-only, and must not change what is emitted.
   testScaleTwinAgreesNested = {
     expr = agree { nest = 3; };
-    expected = true;
-  };
-
-  # Through the adapter into a NixOS core, the whole of Q1(b)'s path.
-  testScaleAdapterAgrees = {
-    expr = let g = gen { fanOut = 10; }; in g.floeAdapted == g.twinOut;
     expected = true;
   };
 

@@ -229,6 +229,16 @@ release; the ADRs keep their reasoning.
 
 ### Fixed
 
+- **Linking is linear in the units it links.** Cycle detection was about
+  O(n⁴), an inclusion checked membership against a list once per provider
+  and edge, and three merges were quadratic. `bench/scale` at 10,000 units
+  now evaluates in 14 s, where a NixOS-module twin of the same workload
+  takes 33 s.
+
+- **`phases` is computed once per unit.** It walked every deploy path, and a
+  chain of units each waiting on the two before it has 2ⁿ of them: forty
+  deep did not finish in five minutes, and now takes milliseconds.
+
 - **A derivation in `out` no longer takes the evaluation down.** A
   derivation is an attrset whose `out` is itself, so the token scan walked
   it until the stack ran out. A stack overflow is not catchable, so reading

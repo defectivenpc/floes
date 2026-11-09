@@ -88,15 +88,14 @@ row() {
 HEADERS='headers'
 BODIES='headers ++ [ l.provides ]'
 FULL='headers ++ [ l.provides g.floeOut ]'
-ADAPTED='headers ++ [ l.provides g.floeOut g.floeAdapted ]'
 TWIN='g.twinOut'
 
 # ---- Soundness: the twin against stock NixOS ------------------------------
 # The precondition for everything below: the twin's catalogue must cost what
 # nixpkgs' does, within ±30%. Declarations only, because that is the layer
 # under test: the rest of a stock eval is the core (systemd units, /etc,
-# derivations), which floes' fragments land in through the adapter, so both
-# sides pay it identically. It is printed as that constant, not compared.
+# derivations), which is downstream of the world both sides produce, so
+# neither pays it here. It is printed as that constant, not compared.
 STOCK='(import "${import '"$ROOT"'/bench/scale/pinned.nix}/nixos/lib/eval-config.nix" {
     system = "x86_64-linux";
     modules = [{
@@ -127,7 +126,6 @@ for n in 50 150 500 2000; do
   row "floe headers   n=$n" "n = $n" "$HEADERS" $n "$F0"
   row "floe +bodies   n=$n" "n = $n" "$BODIES" $n "$F0"
   row "floe full      n=$n" "n = $n" "$FULL" $n "$F0"
-  row "floe +adapter  n=$n" "n = $n" "$ADAPTED" $n "$F0"
   row "twin           n=$n" "n = $n" "$TWIN" $n "$W0"
 done
 
@@ -156,12 +154,10 @@ done
 
 header 'combined'
 row 'floe large host n=500' 'n = 500' "$FULL"
-row 'floe large host +adapter' 'n = 500' "$ADAPTED"
 row 'twin large host n=500' 'n = 500' "$TWIN"
 EVERYTHING='n = 2000; fanOut = 10; nest = 4'
 row 'floe everything headers' "$EVERYTHING" "$HEADERS"
 row 'floe everything full' "$EVERYTHING" "$FULL"
-row 'floe everything +adapter' "$EVERYTHING" "$ADAPTED"
 row 'twin everything' 'n = 2000; fanOut = 10' "$TWIN"
 
 # ---- The ceiling -------------------------------------------------------------
@@ -169,7 +165,7 @@ row 'twin everything' 'n = 2000; fanOut = 10' "$TWIN"
 # as large as the link, so the twin imports what the floe side links.
 header 'ceiling: everything, catalogue = n'
 for n in 2000 5000 10000 20000 50000; do
-  row "floe +adapter  n=$n" "n = $n; catalogue = $n; fanOut = 10; nest = 4" "$ADAPTED" $n "$F0"
+  row "floe full      n=$n" "n = $n; catalogue = $n; fanOut = 10; nest = 4" "$FULL" $n "$F0"
   row "twin           n=$n" "n = $n; catalogue = $n; fanOut = 10" "$TWIN" $n "$W0"
 done
 

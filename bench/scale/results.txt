@@ -1,107 +1,101 @@
 
 -- anchor: the catalogue, stock NixOS vs the twin --------------
                                       cpu_s alloc_MB      thunks       calls  rss_MB    exp
-stock declarations (15.5k)            0.328      135     1436249     1034613     262      -
-twin declarations                     0.305      106     1554731     1160201     156      -
-stock toplevel (core constant)        1.853      661     6937290     4564532     687      -
-twin, 50 enabled, output              0.206       62      969298      741436     108      -
+stock declarations (15.5k)            0.324      135     1436249     1034613     261      -
+twin declarations                     0.309      106     1554729     1160201     156      -
+stock toplevel (core constant)        1.926      661     6937290     4564532     698      -
+twin, 50 enabled, output              0.211       62      969296      741436     107      -
 
-fixed cost: floe 0.019790999591350555 s (n = 0), twin 0.1795099973678589 s (catalogue, nothing enabled)
+fixed cost: floe 0.021165000274777412 s (n = 0), twin 0.18661800026893616 s (catalogue, nothing enabled)
 
 -- breadth: units linked / modules enabled ---------------------
                                       cpu_s alloc_MB      thunks       calls  rss_MB    exp
-floe headers   n=50                   0.046        8      143067      136317      52      -
-floe +bodies   n=50                   0.043        8      145440      139140      52      -
-floe full      n=50                   0.049        8      145912      139884      52      -
-floe +adapter  n=50                   0.052       15      261316      228827      59      -
-twin           n=50                   0.206       62      969298      741436     107      -
-floe headers   n=150                  0.100       25      426711      425055      71   1.00
-floe +bodies   n=150                  0.105       25      433599      433421      70   1.19
-floe full      n=150                  0.103       25      434771      435265      71   0.96
-floe +adapter  n=150                  0.121       47      796066      714907      94   1.04
-twin           n=150                  0.251       87     1390181     1056654     134   0.89
-floe headers   n=500                  0.296       89     1428311     1484061     138   1.03
-floe +bodies   n=500                  0.300       90     1448994     1509776     140   0.99
-floe full      n=500                  0.303       90     1452616     1515470     140   1.02
-floe +adapter  n=500                  0.383      161     2612464     2412441     213   1.06
-twin           n=500                  0.402      171     2775574     2091736     222   0.94
-floe headers   n=2000                 1.413      523     6754896     8235333     460   1.17
-floe +bodies   n=2000                 1.440      527     6835170     8336018     464   1.17
-floe full      n=2000                 1.502      528     6849292     8358212     468   1.19
-floe +adapter  n=2000                 1.964      822    11633912    12068869     474   1.21
-twin           n=2000                 1.376      559     9022280     6785338     474   1.21
+floe headers   n=50                   0.045        8      143069      136320      52      -
+floe +bodies   n=50                   0.051        8      145442      139143      52      -
+floe full      n=50                   0.047        8      145949      139904      52      -
+twin           n=50                   0.211       62      969296      741436     107      -
+floe headers   n=150                  0.098       25      426713      425058      69   1.08
+floe +bodies   n=150                  0.103       25      433601      433424      70   0.93
+floe full      n=150                  0.102       25      434808      435285      70   1.06
+twin           n=150                  0.261       87     1390179     1056654     134   1.00
+floe headers   n=500                  0.302       89     1428313     1484064     139   1.07
+floe +bodies   n=500                  0.306       90     1448996     1509779     140   1.03
+floe full      n=500                  0.302       90     1452653     1515490     139   1.03
+twin           n=500                  0.530      171     2775572     2091736     222   1.27
+floe headers   n=2000                 1.473      523     6754898     8235336     460   1.18
+floe +bodies   n=2000                 1.471      527     6835172     8336021     464   1.17
+floe full      n=2000                 1.469      528     6849329     8358232     468   1.18
+twin           n=2000                 1.371      559     9022278     6785338     475   0.89
 
 -- fan-out: domains each unit claims into, n=500 ---------------
                                       cpu_s alloc_MB      thunks       calls  rss_MB    exp
-floe full      fanOut=1               0.181       60     1068942      977258     107      -
-twin           fanOut=1               0.199      113     1810866     1414472     160      -
-floe full      fanOut=2               0.201       71     1230166     1241284     120   0.17
-twin           fanOut=2               0.237      149     2386406     1884687     198   1.57
-floe full      fanOut=5               0.278      105     1720612     2044348     160   0.39
-twin           fanOut=5               0.523      258     4113018     3295332     311   1.96
-floe full      fanOut=10              0.419      162     2540727     3385586     228   0.63
-twin           fanOut=10              0.820      438     6990682     5646407     463   0.90
+floe full      fanOut=1               0.184       60     1068979      977278     107      -
+twin           fanOut=1               0.198      113     1810864     1414472     161      -
+floe full      fanOut=2               0.216       71     1230203     1241304     119   0.26
+twin           fanOut=2               0.242      149     2386404     1884687     198   2.32
+floe full      fanOut=5               0.281      105     1720649     2044368     161   0.31
+twin           fanOut=5               0.369      258     4113016     3295332     311   1.30
+floe full      fanOut=10              0.426      162     2540764     3385606     228   0.64
+twin           fanOut=10              1.062      438     6990680     5646407     462   2.26
 
 -- requires depth, n=500 ---------------------------------------
                                       cpu_s alloc_MB      thunks       calls  rss_MB    exp
-floe full      depth=1                0.299       91     1434122     1518238     140      -
-twin           depth=1                0.402      170     2762393     2084024     221      -
-floe full      depth=5                0.328       92     1478923     1541817     142   0.06
-twin           depth=5                0.402      172     2784527     2096805     223  -0.00
-floe full      depth=20               0.314       92     1487880     1545328     143  -0.03
-twin           depth=20               0.416      172     2790375     2100100     223   0.04
+floe full      depth=1                0.303       91     1434159     1518258     141      -
+twin           depth=1                0.414      170     2762391     2084024     221      -
+floe full      depth=5                0.328       92     1478960     1541837     142   0.05
+twin           depth=5                0.423      172     2784525     2096805     223   0.02
+floe full      depth=20               0.315       92     1487917     1545348     142  -0.03
+twin           depth=20               0.414      172     2790373     2100100     223  -0.03
 
 -- inclusion depth, n=500 (floe only) --------------------------
                                       cpu_s alloc_MB      thunks       calls  rss_MB    exp
-floe headers   nest=1                 0.291       89     1428311     1484061     138      -
-floe full      nest=1                 0.302       90     1452616     1515470     140      -
-floe headers   nest=2                 0.300       92     1467449     1552910     141   0.05
-floe full      nest=2                 0.307       92     1471128     1558707     142   0.02
-floe headers   nest=4                 0.305       99     1545778     1690713     148   0.02
-floe full      nest=4                 0.316       99     1549555     1696708     149   0.05
-floe headers   nest=8                 0.318      113     1702736     1966811     164   0.06
-floe full      nest=8                 0.336      113     1706709     1973202     165   0.09
+floe headers   nest=1                 0.299       89     1428313     1484064     138      -
+floe full      nest=1                 0.305       90     1452653     1515490     140      -
+floe headers   nest=2                 0.309       92     1467467     1552922     140   0.05
+floe full      nest=2                 0.307       92     1471181     1558736     142   0.01
+floe headers   nest=4                 0.311       99     1545828     1690743     148   0.01
+floe full      nest=4                 0.317       99     1549640     1696755     149   0.05
+floe headers   nest=8                 0.334      113     1702850     1966877     164   0.11
+floe full      nest=8                 0.332      113     1706858     1973285     164   0.07
 
 -- multi-instance, n=500 (floe only) ---------------------------
                                       cpu_s alloc_MB      thunks       calls  rss_MB    exp
-floe full      instances=1            0.305       90     1452616     1515470     140      -
-floe full      instances=10           0.527      200     2750170     3292158     252   0.25
+floe full      instances=1            0.303       90     1452653     1515490     140      -
+floe full      instances=10           0.527      200     2750207     3292178     251   0.25
 
 -- combined ----------------------------------------------------
                                       cpu_s alloc_MB      thunks       calls  rss_MB    exp
-floe large host n=500                 0.304       90     1452616     1515470     141      -
-floe large host +adapter              0.363      161     2612464     2412441     213      -
-twin large host n=500                 0.405      171     2775574     2091736     223      -
-floe everything headers               1.712      675    10919098    14641677     465      -
-floe everything full                  1.773      675    10933375    14664172     482      -
-floe everything +adapter              5.479     1941    31533450    30614953    1088      -
-twin everything                       4.997     1573    25350928    20055625    1156      -
+floe large host n=500                 0.310       90     1452653     1515490     140      -
+twin large host n=500                 0.418      171     2775572     2091736     222      -
+floe everything headers               1.731      675    10919148    14641707     465      -
+floe everything full                  1.800      676    10933460    14664219     481      -
+twin everything                       5.081     1573    25350926    20055625    1154      -
 
 -- ceiling: everything, catalogue = n --------------------------
                                       cpu_s alloc_MB      thunks       calls  rss_MB    exp
-floe +adapter  n=2000                 5.468     1941    31533450    30614953    1089      -
-twin           n=2000                 5.013     1573    25350928    20055625    1156      -
-floe +adapter  n=5000                17.418     4788    77883588    75350038    2679   1.27
-twin           n=5000                16.167     3874    62549232    49393538    2796   1.31
-floe +adapter  n=10000               35.860     9562   155547806   150484644    5477   1.04
-twin           n=10000               33.169     7735   124897421    98633432    5441   1.05
-floe +adapter  n=20000             OOM
+floe full      n=2000                 1.756      676    10933460    14664219     480      -
+twin           n=2000                 6.033     1573    25350926    20055625    1156      -
+floe full      n=5000                 5.677     1652    26749428    35892954     573   1.29
+twin           n=5000                13.699     3874    62549230    49393538    2797   0.91
+floe full      n=10000               13.977     3293    53326326    71622960     856   1.30
+twin           n=10000               33.163     7735   124897419    98633432    5439   1.29
+floe full      n=20000               33.813     6609   106990612   143632863    1801   1.28
 twin           n=20000             OOM
-floe +adapter  n=50000             OOM
+floe full      n=50000               87.951    16499   267252635   358899678    4407   1.04
 twin           n=50000             OOM
 
 -- faults, in the everything link ---------------------------
-floe missing           0.44 s     494 chars  target s1999
+floe missing           0.45 s     494 chars  target s1999
   > error: floe link error: no provider for signature 'SVC_1929' (required by 's1999' as hole 'p1929').
 floe retype            0.46 s    1040 chars  target s1999
   > error: floe link error: 's1999' asked for a signature its provider cannot answer.
-floe derived           0.65 s     419 chars  target s1999
+floe derived           0.66 s     419 chars  target s1999
   > error: floe link error: 'DOM_packages.ports' is derived from the 'CLAIM_packages' collection that 'dom-packages' folds, and 's1999' contributes a 'CLAIM_package
-floe singleton         0.28 s     522 chars  target s1999
+floe singleton         0.29 s     522 chars  target s1999
   > error: floe link error: singleton 'dom-services' is instantiated more than once.
-twin missing           0.32 s     358 chars  target s1999
+twin missing           0.33 s     358 chars  target s1999
   > error: attribute 's1929' missing
-twin retype            0.32 s     195 chars  target s1999
+twin retype            0.33 s     195 chars  target s1999
   > error: A definition for option `svc.s1929.port' is not of type `16 bit unsigned integer; between 0 and 65535 (both inclusive)'. Definition values:
-twin derived           2.63 s      12 chars  target s1999
+twin derived           2.64 s      12 chars  target s1999
   > (no error)
